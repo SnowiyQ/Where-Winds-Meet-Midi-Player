@@ -59,12 +59,12 @@ jobs:
           if-no-files-found: error
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
-          tag_name: v${{ github.event.inputs.version || github.ref_name }}
+          tag: v${{ github.event.inputs.version || github.ref_name }}
           name: Release v${{ github.event.inputs.version || github.ref_name }}
-          files: src-tauri/target/release/wwm-overlay.exe
+          artifacts: src-tauri/target/release/wwm-overlay.exe
           body: |
             ## Installation
 
