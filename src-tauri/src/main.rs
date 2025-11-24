@@ -27,11 +27,12 @@ struct PlaylistItem {
 // Load MIDI files from album folder
 #[tauri::command]
 async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
-    let album_path = std::env::current_dir()
-        .map_err(|e| e.to_string())?
-        .parent()
-        .ok_or("Parent directory not found")?
-        .join("album");
+    // Get the directory where the executable is located
+    let exe_path = std::env::current_exe()
+        .map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent()
+        .ok_or("Failed to get executable directory")?;
+    let album_path = exe_dir.join("album");
 
     let mut files = Vec::new();
 

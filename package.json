@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri-dev": "tauri dev"
+    "tauri-dev": "tauri dev",
+    "tauri-build": "tauri build"
   },
   "devDependencies": {
     "@iconify/svelte": "^5.1.0",
