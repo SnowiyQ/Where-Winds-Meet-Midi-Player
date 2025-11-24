@@ -59,21 +59,20 @@ jobs:
           if-no-files-found: error
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.event.inputs.version || github.ref_name }}
-          name: Release v${{ github.event.inputs.version || github.ref_name }}
-          files: |
-            src-tauri/target/release/wwm-overlay.exe
-          body: |
-            ## Installation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ github.event.inputs.version || github.ref_name }}" `
+            --title "Release v${{ github.event.inputs.version || github.ref_name }}" `
+            --notes "## Installation
 
-            1. Download `wwm-overlay.exe`
-            2. Create a folder for the app
-            3. Create an `album` folder next to the exe
-            4. Add your `.mid` files to the album folder
-            5. Run the app!
+          1. Download ``wwm-overlay.exe``
+          2. Create a folder for the app
+          3. Create an ``album`` folder next to the exe
+          4. Add your ``.mid`` files to the album folder
+          5. Run the app!
 
-            ## What's New
+          ## What's New
 
-            See commits for changes in this release.
+          See commits for changes in this release." `
+            "src-tauri/target/release/wwm-overlay.exe"
