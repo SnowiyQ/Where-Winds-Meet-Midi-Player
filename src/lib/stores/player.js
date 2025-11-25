@@ -238,6 +238,19 @@ export async function loadMidiFiles() {
   }
 }
 
+// Import a MIDI file to album folder
+export async function importMidiFile(sourcePath) {
+  try {
+    const newFile = await invoke('import_midi_file', { sourcePath });
+    // Add to midiFiles store
+    midiFiles.update(files => [...files, newFile]);
+    return { success: true, file: newFile };
+  } catch (error) {
+    console.error('Failed to import MIDI file:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
 // Play a MIDI file
 export async function playMidi(path) {
   try {

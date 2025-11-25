@@ -148,6 +148,53 @@ async fn focus_game_window() -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
+    let source = std::path::Path::new(&source_path);
+
+    // Verify it's a .mid file
+    if source.extension().and_then(|s| s.to_str()) != Some("mid") {
+        return Err("File must be a .mid file".to_string());
+    }
+
+    // Get album folder path
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let album_path = exe_dir.join("album");
+
+    // Create album folder if it doesn't exist
+    if !album_path.exists() {
+        std::fs::create_dir_all(&album_path).map_err(|e| e.to_string())?;
+    }
+
+    // Get filename and create destination path
+    let filename = source.file_name().ok_or("Invalid filename")?;
+    let dest_path = album_path.join(filename);
+
+    // Check if file already exists
+    if dest_path.exists() {
+        return Err(format!("File '{}' already exists in album", filename.to_string_lossy()));
+    }
+
+    // Copy file to album folder
+    std::fs::copy(&source, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+
+    // Get duration and return file info
+    let name = source.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    let duration = midi::get_midi_duration(&dest_path.to_string_lossy())
+        .unwrap_or(0.0);
+
+    Ok(MidiFile {
+        name,
+        path: dest_path.to_string_lossy().to_string(),
+        duration,
+    })
+}
+
+#[tauri::command]
 async fn seek(
     position: f64,
     state: State<'_, Arc<Mutex<AppState>>>,
@@ -317,6 +364,7 @@ fn main() {
             set_interaction_mode,
             focus_game_window,
             seek,
+            import_midi_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,8 @@
 <script>
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
+  import { onMount, onDestroy } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import {
     midiFiles,
     currentFile,
@@ -12,12 +14,74 @@
     toggleFavorite,
     savedPlaylists,
     addToSavedPlaylist,
+    importMidiFile,
   } from "../stores/player.js";
 
   let searchQuery = "";
   let showPlaylistMenu = null;
   let toast = null;
   let toastTimeout = null;
+  let isDragOver = false;
+  let isImporting = false;
+  let unlistenDrop = null;
+  let unlistenHover = null;
+  let unlistenCancel = null;
+
+  onMount(async () => {
+    // Listen for Tauri drag-drop events
+    unlistenDrop = await listen("tauri://drag-drop", async (event) => {
+      isDragOver = false;
+      const paths = event.payload.paths || [];
+      const midFiles = paths.filter(p => p.toLowerCase().endsWith('.mid'));
+
+      if (midFiles.length === 0) {
+        showToast("Please drop .mid files only", "error");
+        return;
+      }
+
+      await importFiles(midFiles);
+    });
+
+    unlistenHover = await listen("tauri://drag-enter", () => {
+      isDragOver = true;
+    });
+
+    unlistenCancel = await listen("tauri://drag-leave", () => {
+      isDragOver = false;
+    });
+  });
+
+  onDestroy(() => {
+    if (unlistenDrop) unlistenDrop();
+    if (unlistenHover) unlistenHover();
+    if (unlistenCancel) unlistenCancel();
+  });
+
+  async function importFiles(midFiles) {
+    isImporting = true;
+    let imported = 0;
+    let failed = 0;
+
+    for (const filePath of midFiles) {
+      const result = await importMidiFile(filePath);
+      if (result.success) {
+        imported++;
+      } else {
+        failed++;
+        console.error(`Failed to import:`, result.error);
+      }
+    }
+
+    isImporting = false;
+
+    if (imported > 0 && failed === 0) {
+      showToast(`Imported ${imported} file${imported > 1 ? 's' : ''}`, "success");
+    } else if (imported > 0 && failed > 0) {
+      showToast(`Imported ${imported}, ${failed} failed`, "info");
+    } else {
+      showToast("Failed to import files", "error");
+    }
+  }
 
   function showToast(message, type = "success") {
     if (toastTimeout) clearTimeout(toastTimeout);
@@ -75,9 +139,37 @@
   $: filteredFiles = $midiFiles.filter((file) =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
 </script>
 
-<div class="h-full flex flex-col">
+<div class="h-full flex flex-col relative">
+  <!-- Drop Zone Overlay -->
+  {#if isDragOver}
+    <div
+      class="absolute inset-0 z-40 bg-[#1db954]/10 border-2 border-dashed border-[#1db954] rounded-lg flex items-center justify-center"
+      transition:fade={{ duration: 150 }}
+    >
+      <div class="text-center">
+        <Icon icon="mdi:file-music" class="w-16 h-16 text-[#1db954] mx-auto mb-4" />
+        <p class="text-lg font-semibold text-[#1db954]">Drop MIDI files here</p>
+        <p class="text-sm text-white/60">Files will be added to your library</p>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Importing Overlay -->
+  {#if isImporting}
+    <div
+      class="absolute inset-0 z-40 bg-black/50 flex items-center justify-center"
+      transition:fade={{ duration: 150 }}
+    >
+      <div class="text-center">
+        <Icon icon="mdi:loading" class="w-12 h-12 text-[#1db954] mx-auto mb-4 animate-spin" />
+        <p class="text-lg font-semibold">Importing files...</p>
+      </div>
+    </div>
+  {/if}
+
   <!-- Header -->
   <div class="mb-4">
     <h2 class="text-2xl font-bold mb-2">Your Library</h2>
@@ -296,10 +388,12 @@
     <div
       class="px-4 py-2 rounded-full shadow-lg flex items-center gap-2 {toast.type === 'success'
         ? 'bg-[#1db954] text-black'
-        : 'bg-white/20 text-white'}"
+        : toast.type === 'error'
+          ? 'bg-red-500 text-white'
+          : 'bg-white/20 text-white'}"
     >
       <Icon
-        icon={toast.type === 'success' ? 'mdi:check-circle' : 'mdi:information'}
+        icon={toast.type === 'success' ? 'mdi:check-circle' : toast.type === 'error' ? 'mdi:alert-circle' : 'mdi:information'}
         class="w-4 h-4"
       />
       <span class="text-sm font-medium">{toast.message}</span>
