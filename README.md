@@ -7,6 +7,9 @@ A beautiful music player for Where Winds Meet that plays your MIDI files by auto
 
 https://github.com/user-attachments/assets/4d25e203-0e4f-4b0f-8dc4-e855ce5e6647
 
+https://github.com/user-attachments/assets/5223ff30-a859-4433-84c0-bfb3d8a8ed46
+
+
 ### Mini Mode
 
 Collapse the app to a small floating icon while playing. The icon glows green when music is playing. Press `Insert` to toggle, or click the minimize button in the sidebar.
