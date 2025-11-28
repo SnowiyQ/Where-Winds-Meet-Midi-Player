@@ -9,38 +9,34 @@
     playMidi,
     isPlaying,
     isPaused,
-    reorderQueue,
   } from "../stores/player.js";
 
-  const flipDurationMs = 200;
+  const flipDurationMs = 300;
 
-  // Transform playlist items to have unique IDs for dnd
-  $: items = $playlist.map((file, index) => ({
-    ...file,
-    id: `${file.path}-${index}`,
-    originalIndex: index,
-  }));
+  // Use stable IDs based on path only
+  let items = [];
+  $: {
+    // Only update items if playlist changed (not during drag)
+    if (!isDragging) {
+      items = $playlist.map((file) => ({
+        ...file,
+        id: file.path,
+      }));
+    }
+  }
+
+  let isDragging = false;
 
   function handleDndConsider(e) {
+    isDragging = true;
     items = e.detail.items;
   }
 
   function handleDndFinalize(e) {
-    const newItems = e.detail.items;
-
-    // Find the item that moved
-    const oldIndices = $playlist.map((_, i) => i);
-    const newIndices = newItems.map((item) => item.originalIndex);
-
-    // Update the playlist in store
-    playlist.set(newItems.map(({ id, originalIndex, ...file }) => file));
-
-    // Update indices for next render
-    items = newItems.map((item, index) => ({
-      ...item,
-      originalIndex: index,
-      id: `${item.path}-${index}`,
-    }));
+    items = e.detail.items;
+    // Update the playlist store
+    playlist.set(items.map(({ id, ...file }) => file));
+    isDragging = false;
   }
 
   function removeFromPlaylist(index) {

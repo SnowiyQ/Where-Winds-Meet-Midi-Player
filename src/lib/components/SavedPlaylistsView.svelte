@@ -2,6 +2,7 @@
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
   import { flip } from "svelte/animate";
+  import { onMount } from "svelte";
   import { dndzone } from "svelte-dnd-action";
   import {
     savedPlaylists,
@@ -16,6 +17,35 @@
     playlist,
     activePlaylistId,
   } from "../stores/player.js";
+
+  let scrollContainer;
+  let showTopMask = false;
+  let showBottomMask = false;
+
+  function handleScroll(e) {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    showTopMask = scrollTop > 10;
+    showBottomMask = scrollTop + clientHeight < scrollHeight - 10;
+  }
+
+  function checkScrollMask() {
+    setTimeout(() => {
+      if (scrollContainer) {
+        const { scrollHeight, clientHeight } = scrollContainer;
+        showBottomMask = scrollHeight > clientHeight;
+        showTopMask = false;
+      }
+    }, 100);
+  }
+
+  onMount(() => {
+    checkScrollMask();
+  });
+
+  // Re-check scroll mask when switching views
+  $: if (selectedPlaylistId !== undefined) {
+    checkScrollMask();
+  }
 
   let showCreateModal = false;
   let newPlaylistName = "";
@@ -220,7 +250,9 @@
 
     <!-- Playlist Tracks with Drag and Drop -->
     <div
-      class="flex-1 overflow-y-auto pr-2"
+      bind:this={scrollContainer}
+      onscroll={handleScroll}
+      class="flex-1 overflow-y-auto pr-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
       use:dndzone={{
         items: trackItems,
         flipDurationMs,
@@ -326,7 +358,9 @@
     <!-- Playlists Grid with Drag and Drop -->
     {#if $savedPlaylists.length > 0}
       <div
-        class="flex-1 overflow-y-auto"
+        bind:this={scrollContainer}
+        onscroll={handleScroll}
+        class="flex-1 overflow-y-auto {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
         use:dndzone={{
           items,
           flipDurationMs,
@@ -451,38 +485,62 @@
 <!-- Create Playlist Modal -->
 {#if showCreateModal}
   <div
-    class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+    class="fixed inset-0 z-50 flex items-center justify-center"
     transition:fade={{ duration: 150 }}
-    onclick={() => (showCreateModal = false)}
   >
+    <!-- Backdrop -->
+    <button
+      class="absolute inset-0 bg-black/60"
+      onclick={() => { showCreateModal = false; newPlaylistName = ""; }}
+    ></button>
+
+    <!-- Modal -->
     <div
-      class="bg-[#282828] rounded-xl p-6 w-80 shadow-2xl border border-white/10"
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[400px] max-w-[90vw] overflow-hidden"
       transition:fly={{ y: 20, duration: 200 }}
-      onclick={(e) => e.stopPropagation()}
     >
-      <h3 class="text-xl font-bold mb-4">Create Playlist</h3>
-      <input
-        type="text"
-        placeholder="Playlist name"
-        bind:value={newPlaylistName}
-        class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#1db954] mb-4"
-        onkeydown={(e) => e.key === "Enter" && handleCreate()}
-        autofocus
-      />
-      <div class="flex gap-2 justify-end">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <h3 class="text-lg font-bold">Create Playlist</h3>
         <button
-          class="spotify-button spotify-button--secondary"
-          onclick={() => (showCreateModal = false)}
+          class="p-1 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          onclick={() => { showCreateModal = false; newPlaylistName = ""; }}
         >
-          Cancel
+          <Icon icon="mdi:close" class="w-5 h-5" />
         </button>
-        <button
-          class="spotify-button spotify-button--primary"
-          onclick={handleCreate}
-          disabled={!newPlaylistName.trim()}
-        >
-          Create
-        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="p-4 space-y-4">
+        <!-- Name Input -->
+        <div>
+          <label class="block text-sm font-medium text-white/70 mb-2">Playlist Name</label>
+          <input
+            type="text"
+            placeholder="My playlist"
+            bind:value={newPlaylistName}
+            class="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#1db954] focus:border-transparent transition-all"
+            onkeydown={(e) => e.key === "Enter" && handleCreate()}
+            autofocus
+          />
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-2 justify-end pt-2">
+          <button
+            class="px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white font-medium text-sm transition-colors"
+            onclick={() => { showCreateModal = false; newPlaylistName = ""; }}
+          >
+            Cancel
+          </button>
+          <button
+            class="px-4 py-2.5 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-black font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onclick={handleCreate}
+            disabled={!newPlaylistName.trim()}
+          >
+            Create
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -491,32 +549,59 @@
 <!-- Delete Confirmation Modal -->
 {#if deleteConfirmId}
   <div
-    class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+    class="fixed inset-0 z-50 flex items-center justify-center"
     transition:fade={{ duration: 150 }}
-    onclick={cancelDelete}
   >
+    <!-- Backdrop -->
+    <button
+      class="absolute inset-0 bg-black/60"
+      onclick={cancelDelete}
+    ></button>
+
+    <!-- Modal -->
     <div
-      class="bg-[#282828] rounded-xl p-6 w-80 shadow-2xl border border-white/10"
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[400px] max-w-[90vw] overflow-hidden"
       transition:fly={{ y: 20, duration: 200 }}
-      onclick={(e) => e.stopPropagation()}
     >
-      <h3 class="text-xl font-bold mb-2">Delete Playlist?</h3>
-      <p class="text-sm text-white/60 mb-4">
-        This will permanently delete "{$savedPlaylists.find(p => p.id === deleteConfirmId)?.name || 'this playlist'}".
-      </p>
-      <div class="flex gap-2 justify-end">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <h3 class="text-lg font-bold">Delete Playlist</h3>
         <button
-          class="spotify-button spotify-button--secondary"
+          class="p-1 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
           onclick={cancelDelete}
         >
-          Cancel
+          <Icon icon="mdi:close" class="w-5 h-5" />
         </button>
-        <button
-          class="spotify-button bg-red-500 hover:bg-red-600 text-white rounded-full px-4 py-2 text-sm font-semibold transition-all"
-          onclick={confirmDelete}
-        >
-          Delete
-        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="p-4 space-y-4">
+        <!-- Warning Icon -->
+        <div class="flex items-center gap-4">
+          <div class="w-16 h-16 rounded-xl bg-red-500/10 flex items-center justify-center">
+            <Icon icon="mdi:delete-alert" class="w-8 h-8 text-red-400" />
+          </div>
+          <div class="text-left">
+            <p class="font-semibold text-white">{$savedPlaylists.find(p => p.id === deleteConfirmId)?.name || 'Playlist'}</p>
+            <p class="text-sm text-white/50">This action cannot be undone</p>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-2 justify-end pt-2">
+          <button
+            class="px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white font-medium text-sm transition-colors"
+            onclick={cancelDelete}
+          >
+            Cancel
+          </button>
+          <button
+            class="px-4 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium text-sm transition-colors"
+            onclick={confirmDelete}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   </div>

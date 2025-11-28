@@ -23,6 +23,9 @@ export const modifierDelay = writable(2);
 // Octave shift (-2 to +2)
 export const octaveShift = writable(0);
 
+// Playback speed (0.25 to 2.0, default 1.0)
+export const speed = writable(1.0);
+
 // Playlist state
 export const midiFiles = writable([]);
 export const playlist = writable([]);
@@ -93,11 +96,77 @@ const STORAGE_KEYS = {
   ACTIVE_PLAYLIST: 'wwm-active-playlist',
   NOTE_MODE: 'wwm-note-mode',
   KEY_MODE: 'wwm-key-mode',
-  MODIFIER_DELAY: 'wwm-modifier-delay'
+  MODIFIER_DELAY: 'wwm-modifier-delay',
+  SPEED: 'wwm-speed',
+  STATS: 'wwm-stats'
 };
+
+// Stats store
+export const stats = writable({
+  totalPlaytime: 0,
+  songsPlayed: 0,
+  sessionsCount: 0,
+  mostPlayed: {},
+  lastPlayed: null,
+  firstUsed: null,
+});
+
+// Track song play
+export function trackSongPlay(filename) {
+  stats.update(s => {
+    s.songsPlayed++;
+    s.lastPlayed = new Date().toISOString();
+    s.mostPlayed[filename] = (s.mostPlayed[filename] || 0) + 1;
+    if (!s.firstUsed) s.firstUsed = new Date().toISOString();
+    saveStats(s);
+    return s;
+  });
+}
+
+// Add playtime
+export function addPlaytime(seconds) {
+  stats.update(s => {
+    s.totalPlaytime += seconds;
+    saveStats(s);
+    return s;
+  });
+}
+
+// Increment session
+export function incrementSession() {
+  stats.update(s => {
+    s.sessionsCount++;
+    if (!s.firstUsed) s.firstUsed = new Date().toISOString();
+    saveStats(s);
+    return s;
+  });
+}
+
+function saveStats(s) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(s));
+  } catch (e) {
+    console.error('Failed to save stats:', e);
+  }
+}
+
+function loadStats() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.STATS);
+    if (stored) {
+      stats.set(JSON.parse(stored));
+    }
+  } catch (e) {
+    console.error('Failed to load stats:', e);
+  }
+}
 
 // Initialize from localStorage
 export async function initializeStorage() {
+  // Load stats first
+  loadStats();
+  incrementSession();
+
   try {
     const storedFavorites = localStorage.getItem(STORAGE_KEYS.FAVORITES);
     if (storedFavorites) {
@@ -137,6 +206,15 @@ export async function initializeStorage() {
       modifierDelay.set(delay);
       // Sync with backend
       await invoke('set_modifier_delay', { delay_ms: delay });
+    }
+
+    // Load speed from localStorage and sync with backend
+    const storedSpeed = localStorage.getItem(STORAGE_KEYS.SPEED);
+    if (storedSpeed) {
+      const spd = parseFloat(storedSpeed);
+      speed.set(spd);
+      // Sync with backend
+      await invoke('set_speed', { speed: spd });
     }
   } catch (error) {
     console.error('Failed to load from localStorage:', error);
@@ -356,6 +434,10 @@ export async function playMidi(path) {
     isPlaying.set(true);
     isPaused.set(false);
     currentFile.set(path);
+
+    // Track stats
+    const filename = path.split(/[\\/]/).pop() || path;
+    trackSongPlay(filename);
   } catch (error) {
     console.error('Failed to play MIDI:', error);
   }
@@ -465,6 +547,20 @@ export async function setModifierDelay(delayMs) {
     console.log(`Modifier delay set to: ${clamped}ms`);
   } catch (error) {
     console.error('Failed to set modifier delay:', error);
+  }
+}
+
+// Set playback speed (0.25 to 2.0)
+export async function setSpeed(newSpeed) {
+  const clamped = Math.max(0.25, Math.min(2.0, newSpeed));
+  // Update store immediately for responsive UI
+  speed.set(clamped);
+  localStorage.setItem(STORAGE_KEYS.SPEED, clamped.toString());
+  try {
+    await invoke('set_speed', { speed: clamped });
+    console.log(`Speed set to: ${clamped}x`);
+  } catch (error) {
+    console.error('Failed to set speed:', error);
   }
 }
 
@@ -654,6 +750,9 @@ async function refreshPlaybackState() {
     }
     if (state.octave_shift !== undefined) {
       octaveShift.set(state.octave_shift);
+    }
+    if (state.speed !== undefined) {
+      speed.set(state.speed);
     }
   } catch (error) {
     console.error('Failed to refresh playback status:', error);

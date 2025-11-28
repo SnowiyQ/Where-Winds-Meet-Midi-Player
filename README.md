@@ -2,7 +2,7 @@
 A beautiful music player for Where Winds Meet that plays your MIDI files by automatically pressing the right keyboard keys in-game.
 
 > **Note:** 36-key mode is currently unstable and experimental. We're looking for a better approach. For best results, use the default 21-key mode.
-<img width="1180" height="560" alt="image" src="https://github.com/user-attachments/assets/63a05a45-b852-4b03-9c94-2432b78a4c2f" />
+<img width="1180" height="620" alt="image" src="https://github.com/user-attachments/assets/8977b742-7f7d-47d9-b78f-d36ed677e3c5" />
 
 
 https://github.com/user-attachments/assets/4d25e203-0e4f-4b0f-8dc4-e855ce5e6647
@@ -29,18 +29,21 @@ If you enjoy this app, consider supporting me on Ko-fi!
 
 - **Beautiful Spotify-style interface** - Dark theme with smooth animations
 - **Easy to use** - Just drag your MIDI files and click play
+- **Auto-update** - Get notified when new versions are available with one-click update
 - **Play without focus** - No need to focus the game window, play while doing other things (local mode only)
 - **Cloud gaming support** - Works with GeForce Now, Xbox Cloud Gaming, etc. (requires focus)
 - **Smart music selection** - Automatically adjusts notes to fit the game's instrument
 - **Multiple note modes** - 7 different note calculation algorithms to choose from
 - **21/36 key toggle** - Switch between 21-key (natural notes) and 36-key (with sharps/flats) modes
 - **Real-time mode switching** - Change note mode during playback instantly
+- **Speed control** - Adjust playback speed from 0.25x to 2x
 - **Octave shift control** - Adjust pitch up or down by up to 2 octaves
 - **Queue system** - Build your playlist and play songs in order
-- **Favorites** - Mark your favorite songs for quick access
+- **Favorites** - Mark your favorite songs for quick access, drag to reorder
 - **Search & sort** - Find songs instantly and sort by name, date, or duration
 - **Multiple playlists** - Create, rename, and manage custom playlists
-- **Drag & drop reordering** - Reorder songs in queue and playlists
+- **Drag & drop reordering** - Reorder songs in queue, favorites, and playlists
+- **Custom album location** - Choose where to load MIDI files from in Settings
 - **Real-time progress** - See exactly where you are in the song
 - **Seek support** - Click anywhere on the timeline to jump to that position
 - **Global hotkeys** - Control playback from anywhere, even when the game is focused

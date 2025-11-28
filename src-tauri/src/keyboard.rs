@@ -79,8 +79,17 @@ fn matches_target_window(hwnd: HWND, log: bool) -> bool {
     }
     let title_string = String::from_utf16_lossy(&title[..len as usize]).to_lowercase();
 
-    // Skip our own window
-    if title_string.contains("midi player") || title_string.contains("overlay") {
+    // Skip our own window and common apps that should never receive keys
+    if title_string.contains("midi player")
+        || title_string.contains("overlay")
+        || title_string.contains("discord")
+        || title_string.contains("telegram")
+        || title_string.contains("slack")
+        || title_string.contains("teams")
+        || title_string.contains("notepad")
+        || title_string.contains("visual studio")
+        || title_string.contains("vscode")
+    {
         return false;
     }
 
@@ -313,6 +322,10 @@ pub fn key_down(key: &str) {
     if let Some((vk, modifier)) = parse_key(key) {
         if USE_SEND_INPUT.load(Ordering::SeqCst) {
             // SendInput mode - global keyboard simulation
+            // Only send if a game window is currently focused (prevent typing in Discord etc)
+            if !is_wwm_focused().unwrap_or(false) {
+                return;
+            }
             // Send modifier first if needed
             if let Some(mod_vk) = modifier_to_vk(modifier) {
                 send_input_key_down(mod_vk);
@@ -351,6 +364,10 @@ pub fn key_up(key: &str) {
     if let Some((vk, modifier)) = parse_key(key) {
         if USE_SEND_INPUT.load(Ordering::SeqCst) {
             // SendInput mode - global keyboard simulation
+            // Only send if a game window is currently focused (prevent typing in Discord etc)
+            if !is_wwm_focused().unwrap_or(false) {
+                return;
+            }
             send_input_key_up(vk);
             if let Some(mod_vk) = modifier_to_vk(modifier) {
                 let delay = get_modifier_delay();
@@ -451,6 +468,17 @@ fn string_to_key(key: &str) -> Option<Key> {
     }
 }
 */
+
+/// Check if game window exists (for status indicator)
+#[cfg(target_os = "windows")]
+pub fn is_game_window_found() -> bool {
+    find_game_window().is_some()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_game_window_found() -> bool {
+    true
+}
 
 #[cfg(target_os = "windows")]
 pub fn is_wwm_focused() -> Result<bool, String> {

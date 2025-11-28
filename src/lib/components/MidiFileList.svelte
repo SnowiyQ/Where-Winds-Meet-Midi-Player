@@ -3,6 +3,7 @@
   import { fade, fly } from "svelte/transition";
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     midiFiles,
@@ -30,7 +31,36 @@
   let sortBy = "name-asc"; // name-asc, name-desc, duration-asc, duration-desc
   let showSortMenu = false;
 
+  // Import modal
+  let showImportModal = false;
+  let urlInput = "";
+  let isDownloading = false;
+
+  // Scroll mask
+  let scrollContainer;
+  let showTopMask = false;
+  let showBottomMask = false;
+
+  // Autofocus action
+  function autofocus(node) {
+    node.focus();
+  }
+
+  function handleScroll(e) {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    showTopMask = scrollTop > 10;
+    showBottomMask = scrollTop + clientHeight < scrollHeight - 10;
+  }
+
   onMount(async () => {
+    // Check initial scroll state
+    setTimeout(() => {
+      if (scrollContainer) {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+        showBottomMask = scrollHeight > clientHeight;
+      }
+    }, 100);
+
     // Listen for Tauri drag-drop events
     unlistenDrop = await listen("tauri://drag-drop", async (event) => {
       isDragOver = false;
@@ -90,15 +120,47 @@
     try {
       const selected = await open({
         multiple: true,
-        filters: [{ name: "MIDI Files", extensions: ["mid"] }],
+        filters: [{ name: "MIDI Files", extensions: ["mid", "midi"] }],
       });
 
       if (selected && selected.length > 0) {
+        showImportModal = false;
         await importFiles(selected);
       }
     } catch (error) {
       console.error("Failed to open file dialog:", error);
       showToast("Failed to open file dialog", "error");
+    }
+  }
+
+  async function downloadFromUrl() {
+    if (!urlInput.trim()) {
+      showToast("Please enter a URL", "error");
+      return;
+    }
+
+    const url = urlInput.trim();
+
+    // Basic URL validation
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      showToast("Invalid URL format", "error");
+      return;
+    }
+
+    isDownloading = true;
+    try {
+      const result = await invoke('download_midi_from_url', { url });
+      showImportModal = false;
+      urlInput = "";
+      showToast(`Imported "${result.name}"`, "success");
+      // Refresh file list
+      const { loadMidiFiles } = await import('../stores/player.js');
+      await loadMidiFiles();
+    } catch (error) {
+      console.error("Failed to download:", error);
+      showToast(error.toString(), "error");
+    } finally {
+      isDownloading = false;
     }
   }
 
@@ -215,7 +277,7 @@
       <h2 class="text-2xl font-bold">Your Library</h2>
       <button
         class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-sm font-medium transition-all"
-        onclick={openFileDialog}
+        onclick={() => showImportModal = true}
         title="Import MIDI files"
       >
         <Icon icon="mdi:plus" class="w-4 h-4" />
@@ -290,7 +352,11 @@
   </div>
 
   <!-- Song List (Scrollable) -->
-  <div class="flex-1 overflow-y-auto space-y-1 pr-2">
+  <div
+    bind:this={scrollContainer}
+    onscroll={handleScroll}
+    class="flex-1 overflow-y-auto space-y-1 pr-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
+  >
     {#each filteredFiles as file, index (file.path)}
       <div
         class="group spotify-list-item flex items-center gap-4 py-2 transition-all duration-200 {$currentFile ===
@@ -489,9 +555,95 @@
   </div>
 {/if}
 
+<!-- Import Modal -->
+{#if showImportModal}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    transition:fade={{ duration: 150 }}
+  >
+    <!-- Backdrop -->
+    <button
+      class="absolute inset-0 bg-black/60"
+      onclick={() => { showImportModal = false; urlInput = ""; }}
+    ></button>
+
+    <!-- Modal -->
+    <div
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[400px] max-w-[90vw] overflow-hidden"
+      transition:fly={{ y: 20, duration: 200 }}
+    >
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <h3 class="text-lg font-bold">Import MIDI</h3>
+        <button
+          class="p-1 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          onclick={() => { showImportModal = false; urlInput = ""; }}
+        >
+          <Icon icon="mdi:close" class="w-5 h-5" />
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="p-4 space-y-4">
+        <!-- Browse Files Option -->
+        <button
+          class="w-full p-4 rounded-xl border-2 border-dashed border-white/20 hover:border-[#1db954] hover:bg-[#1db954]/5 transition-all group"
+          onclick={openFileDialog}
+        >
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-[#1db954]/20 flex items-center justify-center transition-colors">
+              <Icon icon="mdi:folder-open" class="w-6 h-6 text-white/60 group-hover:text-[#1db954] transition-colors" />
+            </div>
+            <div class="text-left">
+              <p class="font-semibold text-white group-hover:text-[#1db954] transition-colors">Browse Files</p>
+              <p class="text-sm text-white/50">Select .mid files from your computer</p>
+            </div>
+          </div>
+        </button>
+
+        <!-- Divider -->
+        <div class="flex items-center gap-3">
+          <div class="flex-1 h-px bg-white/10"></div>
+          <span class="text-xs text-white/40">or</span>
+          <div class="flex-1 h-px bg-white/10"></div>
+        </div>
+
+        <!-- URL Input -->
+        <div>
+          <label class="block text-sm font-medium text-white/70 mb-2">Paste URL</label>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={urlInput}
+              placeholder="https://example.com/song.mid"
+              class="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#1db954] focus:border-transparent transition-all"
+              onkeydown={(e) => e.key === 'Enter' && downloadFromUrl()}
+              use:autofocus
+            />
+            <button
+              class="px-4 py-2.5 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              onclick={downloadFromUrl}
+              disabled={isDownloading || !urlInput.trim()}
+            >
+              {#if isDownloading}
+                <Icon icon="mdi:loading" class="w-4 h-4 animate-spin" />
+              {:else}
+                <Icon icon="mdi:download" class="w-4 h-4" />
+              {/if}
+              {isDownloading ? 'Downloading...' : 'Download'}
+            </button>
+          </div>
+          <p class="text-xs text-white/40 mt-2">Works with direct .mid links from Discord, etc.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <svelte:window
   onclick={() => {
     showPlaylistMenu = null;
     showSortMenu = false;
   }}
 />
+

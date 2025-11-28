@@ -21,6 +21,7 @@ tauri-plugin-dialog = "2.4.2"
 xcap = "0.0.14"
 image = "0.25"
 open = "5"
+ureq = "2"
 
 [features]
 default = ["custom-protocol"]

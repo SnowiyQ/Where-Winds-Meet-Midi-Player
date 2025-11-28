@@ -1,10 +1,19 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicI8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicI8, AtomicU16, Ordering};
 use std::time::Instant;
 use tauri::Window;
 use serde::{Serialize, Deserialize};
 
-use crate::midi::{NoteMode, KeyMode};
+use crate::midi::{NoteMode, KeyMode, EventType};
+
+/// Note event for visualizer (simplified for frontend)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualizerNote {
+    pub time_ms: u64,      // Start time in ms
+    pub duration_ms: u64,  // Duration in ms
+    pub note: u8,          // MIDI note number
+    pub key_index: u8,     // Key index (0-20 for 21 keys)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaybackState {
@@ -17,6 +26,7 @@ pub struct PlaybackState {
     pub note_mode: NoteMode,
     pub key_mode: KeyMode,
     pub octave_shift: i8,
+    pub speed: f64,
 }
 
 pub struct AppState {
@@ -26,6 +36,7 @@ pub struct AppState {
     note_mode: Arc<AtomicU8>,
     key_mode: Arc<AtomicU8>,
     octave_shift: Arc<AtomicI8>,
+    speed: Arc<AtomicU16>, // Stored as speed * 100 (e.g., 100 = 1.0x, 50 = 0.5x)
     current_position: Arc<std::sync::Mutex<f64>>,
     total_duration: Arc<std::sync::Mutex<f64>>,
     current_file: Arc<std::sync::Mutex<Option<String>>>,
@@ -43,6 +54,7 @@ impl AppState {
             note_mode: Arc::new(AtomicU8::new(NoteMode::Python as u8)),
             key_mode: Arc::new(AtomicU8::new(KeyMode::Keys21 as u8)),
             octave_shift: Arc::new(AtomicI8::new(0)),
+            speed: Arc::new(AtomicU16::new(100)), // Default 1.0x speed
             current_position: Arc::new(std::sync::Mutex::new(0.0)),
             total_duration: Arc::new(std::sync::Mutex::new(0.0)),
             current_file: Arc::new(std::sync::Mutex::new(None)),
@@ -80,6 +92,7 @@ impl AppState {
             let note_mode = Arc::clone(&self.note_mode);
             let key_mode = Arc::clone(&self.key_mode);
             let octave_shift = Arc::clone(&self.octave_shift);
+            let speed = Arc::clone(&self.speed);
             let current_position = Arc::clone(&self.current_position);
             let seek_offset = Arc::clone(&self.seek_offset);
 
@@ -92,6 +105,7 @@ impl AppState {
                     note_mode,
                     key_mode,
                     octave_shift,
+                    speed,
                     current_position,
                     seek_offset,
                     window
@@ -128,6 +142,16 @@ impl AppState {
 
     pub fn get_octave_shift(&self) -> i8 {
         self.octave_shift.load(Ordering::SeqCst)
+    }
+
+    pub fn set_speed(&mut self, speed: f64) {
+        // Clamp to 0.25x - 2.0x range, store as integer (speed * 100)
+        let clamped = (speed.clamp(0.25, 2.0) * 100.0) as u16;
+        self.speed.store(clamped, Ordering::SeqCst);
+    }
+
+    pub fn get_speed(&self) -> f64 {
+        self.speed.load(Ordering::SeqCst) as f64 / 100.0
     }
 
     pub fn toggle_pause(&mut self) {
@@ -187,6 +211,79 @@ impl AppState {
             note_mode: self.get_note_mode(),
             key_mode: self.get_key_mode(),
             octave_shift: self.get_octave_shift(),
+            speed: self.get_speed(),
         }
+    }
+
+    /// Get note events for visualizer - only shows actual key presses (21 keys)
+    pub fn get_visualizer_notes(&self) -> Vec<VisualizerNote> {
+        let midi_data = self.midi_data.lock().unwrap();
+        if midi_data.is_none() {
+            return Vec::new();
+        }
+
+        let midi = midi_data.as_ref().unwrap();
+        let transpose = midi.transpose;
+        let mut notes: Vec<VisualizerNote> = Vec::new();
+
+        // Only collect note_on events (game does instant tap, not hold)
+        // and map to the 21 game keys
+        for event in &midi.events {
+            if let EventType::NoteOn = event.event_type {
+                let key_index = Self::note_to_key_index(event.note as i32, transpose);
+
+                notes.push(VisualizerNote {
+                    time_ms: event.time_ms,
+                    duration_ms: 80, // Fixed short duration for tap visualization
+                    note: event.note,
+                    key_index,
+                });
+            }
+        }
+
+        // Sort by time
+        notes.sort_by_key(|n| n.time_ms);
+
+        // Remove duplicate key presses at same time (within 10ms)
+        let mut filtered: Vec<VisualizerNote> = Vec::new();
+        for note in notes {
+            let dominated = filtered.iter().any(|existing| {
+                existing.key_index == note.key_index &&
+                (note.time_ms as i64 - existing.time_ms as i64).abs() < 10
+            });
+            if !dominated {
+                filtered.push(note);
+            }
+        }
+
+        filtered
+    }
+
+    /// Map MIDI note to key index (0-20)
+    fn note_to_key_index(note: i32, transpose: i32) -> u8 {
+        const INSTRUMENT_NOTES: [i32; 21] = [
+            48, 50, 52, 53, 55, 57, 59,
+            60, 62, 64, 65, 67, 69, 71,
+            72, 74, 76, 77, 79, 81, 83,
+        ];
+
+        // Normalize into range
+        let lo = INSTRUMENT_NOTES[0];
+        let hi = INSTRUMENT_NOTES[20];
+        let mut target = note + transpose;
+        while target < lo { target += 12; }
+        while target > hi { target -= 12; }
+
+        // Find closest key
+        let mut best_idx: u8 = 0;
+        let mut best_dist = (INSTRUMENT_NOTES[0] - target).abs();
+        for (i, &inst_note) in INSTRUMENT_NOTES.iter().enumerate() {
+            let dist = (inst_note - target).abs();
+            if dist < best_dist {
+                best_idx = i as u8;
+                best_dist = dist;
+            }
+        }
+        best_idx
     }
 }

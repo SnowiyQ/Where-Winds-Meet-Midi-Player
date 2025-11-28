@@ -17,11 +17,70 @@ use windows::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass, HIG
 // Global app handle for low-level hook callback
 static mut GLOBAL_APP_HANDLE: Option<AppHandle> = None;
 
+// Global album path (None = default to exe_dir/album)
+use std::sync::RwLock;
+static ALBUM_PATH: RwLock<Option<String>> = RwLock::new(None);
+
+fn get_config_path() -> Result<std::path::PathBuf, String> {
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    Ok(exe_dir.join("config.json"))
+}
+
+fn load_saved_album_path() {
+    if let Ok(config_path) = get_config_path() {
+        if config_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(path) = json["album_path"].as_str() {
+                        let path_buf = std::path::PathBuf::from(path);
+                        if path_buf.exists() {
+                            if let Ok(mut guard) = ALBUM_PATH.write() {
+                                *guard = Some(path.to_string());
+                                println!("Loaded album path: {}", path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn save_album_path(path: Option<&str>) {
+    if let Ok(config_path) = get_config_path() {
+        let json = match path {
+            Some(p) => serde_json::json!({ "album_path": p }),
+            None => serde_json::json!({}),
+        };
+        if let Ok(content) = serde_json::to_string_pretty(&json) {
+            let _ = std::fs::write(&config_path, content);
+        }
+    }
+}
+
+fn get_album_folder() -> Result<std::path::PathBuf, String> {
+    // Check if custom path is set
+    if let Ok(guard) = ALBUM_PATH.read() {
+        if let Some(ref custom_path) = *guard {
+            let path = std::path::PathBuf::from(custom_path);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+    }
+
+    // Default to exe_dir/album
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    Ok(exe_dir.join("album"))
+}
+
 mod midi;
 mod keyboard;
 mod state;
 
-use state::{AppState, PlaybackState};
+use state::{AppState, PlaybackState, VisualizerNote};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MidiFile {
@@ -40,14 +99,12 @@ const HOTKEY_NEXT_F11: i32 = 5;
 // Load MIDI files from album folder
 #[tauri::command]
 async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
-    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
-    let album_path = exe_dir.join("album");
+    let album_path = get_album_folder()?;
 
     let mut files = Vec::new();
 
     if album_path.exists() {
-        let entries = std::fs::read_dir(album_path).map_err(|e| e.to_string())?;
+        let entries = std::fs::read_dir(&album_path).map_err(|e| e.to_string())?;
 
         for entry in entries {
             if let Ok(entry) = entry {
@@ -168,6 +225,25 @@ async fn get_octave_shift(
 }
 
 #[tauri::command]
+async fn set_speed(
+    speed: f64,
+    state: State<'_, Arc<Mutex<AppState>>>
+) -> Result<(), String> {
+    let mut app_state = state.lock().unwrap();
+    app_state.set_speed(speed);
+    println!("Speed set to: {}x", speed);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_speed(
+    state: State<'_, Arc<Mutex<AppState>>>
+) -> Result<f64, String> {
+    let app_state = state.lock().unwrap();
+    Ok(app_state.get_speed())
+}
+
+#[tauri::command]
 async fn set_key_mode(
     mode: midi::KeyMode,
     state: State<'_, Arc<Mutex<AppState>>>
@@ -189,6 +265,11 @@ async fn get_key_mode(
 #[tauri::command]
 async fn is_game_focused() -> Result<bool, String> {
     keyboard::is_wwm_focused().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn is_game_window_found() -> Result<bool, String> {
+    Ok(keyboard::is_game_window_found())
 }
 
 #[tauri::command]
@@ -433,9 +514,7 @@ async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
     }
 
     // Get album folder path
-    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
-    let album_path = exe_dir.join("album");
+    let album_path = get_album_folder()?;
 
     // Create album folder if it doesn't exist
     if !album_path.exists() {
@@ -471,6 +550,147 @@ async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
 }
 
 #[tauri::command]
+async fn get_album_path() -> Result<String, String> {
+    let path = get_album_folder()?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn set_album_path(path: String) -> Result<(), String> {
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    if !path_buf.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+
+    if let Ok(mut guard) = ALBUM_PATH.write() {
+        *guard = Some(path.clone());
+    }
+    save_album_path(Some(&path));
+    Ok(())
+}
+
+#[tauri::command]
+async fn reset_album_path() -> Result<String, String> {
+    if let Ok(mut guard) = ALBUM_PATH.write() {
+        *guard = None;
+    }
+    save_album_path(None);
+    // Return the default path
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    Ok(exe_dir.join("album").to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn get_visualizer_notes(
+    state: State<'_, Arc<Mutex<AppState>>>
+) -> Result<Vec<VisualizerNote>, String> {
+    let app_state = state.lock().unwrap();
+    Ok(app_state.get_visualizer_notes())
+}
+
+#[tauri::command]
+async fn download_midi_from_url(url: String) -> Result<MidiFile, String> {
+    use std::io::Read;
+
+    // Validate URL
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("Invalid URL format".to_string());
+    }
+
+    // Try to extract filename from URL
+    let url_path = url.split('?').next().unwrap_or(&url);
+    let filename = url_path
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty() && s.ends_with(".mid"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            // Generate filename from timestamp if no valid filename in URL
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("download_{}.mid", timestamp)
+        });
+
+    // Download the file
+    let response = ureq::get(&url)
+        .call()
+        .map_err(|e| format!("Failed to download: {}", e))?;
+
+    // Check content type or status
+    let status = response.status();
+    if status != 200 {
+        return Err(format!("Server returned status {}", status));
+    }
+
+    // Read response body
+    let mut bytes = Vec::new();
+    response.into_reader()
+        .take(10 * 1024 * 1024) // Limit to 10MB
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Validate it looks like a MIDI file (starts with "MThd")
+    if bytes.len() < 4 || &bytes[0..4] != b"MThd" {
+        return Err("Downloaded file is not a valid MIDI file".to_string());
+    }
+
+    // Get album folder path
+    let album_path = get_album_folder()?;
+
+    // Create album folder if it doesn't exist
+    if !album_path.exists() {
+        std::fs::create_dir_all(&album_path).map_err(|e| e.to_string())?;
+    }
+
+    // Create destination path
+    let dest_path = album_path.join(&filename);
+
+    // Check if file already exists, generate unique name if needed
+    let final_path = if dest_path.exists() {
+        let stem = filename.trim_end_matches(".mid");
+        let mut counter = 1;
+        loop {
+            let new_name = format!("{}_{}.mid", stem, counter);
+            let new_path = album_path.join(&new_name);
+            if !new_path.exists() {
+                break new_path;
+            }
+            counter += 1;
+            if counter > 100 {
+                return Err("Too many files with same name".to_string());
+            }
+        }
+    } else {
+        dest_path
+    };
+
+    // Write file
+    std::fs::write(&final_path, &bytes)
+        .map_err(|e| format!("Failed to save file: {}", e))?;
+
+    // Get duration and return file info
+    let name = final_path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    let duration = midi::get_midi_duration(&final_path.to_string_lossy())
+        .unwrap_or(0.0);
+
+    Ok(MidiFile {
+        name,
+        path: final_path.to_string_lossy().to_string(),
+        duration,
+    })
+}
+
+#[tauri::command]
 async fn seek(
     position: f64,
     state: State<'_, Arc<Mutex<AppState>>>,
@@ -486,6 +706,182 @@ async fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
 }
 
+// ============ Auto-Updater ============
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UpdateInfo {
+    version: String,
+    download_url: String,
+    release_url: String,
+    file_name: String,
+}
+
+#[tauri::command]
+async fn check_for_update(current_version: String) -> Result<Option<UpdateInfo>, String> {
+    use std::io::Read;
+
+    let response = ureq::get("https://api.github.com/repos/SnowiyQ/Where-Winds-Meet-Midi-Player/releases/latest")
+        .set("User-Agent", "WWM-Overlay")
+        .call()
+        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+
+    let mut body = String::new();
+    response.into_reader()
+        .take(1024 * 1024)
+        .read_to_string(&mut body)
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| e.to_string())?;
+
+    let latest_version = json["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim_start_matches('v')
+        .to_string();
+
+    if latest_version.is_empty() {
+        return Ok(None);
+    }
+
+    // Compare versions
+    if !is_newer_version(&latest_version, &current_version) {
+        return Ok(None);
+    }
+
+    // Find the zip asset
+    let assets = json["assets"].as_array();
+    let download_url = assets
+        .and_then(|arr| {
+            arr.iter().find(|a| {
+                a["name"].as_str()
+                    .map(|n| n.ends_with(".zip"))
+                    .unwrap_or(false)
+            })
+        })
+        .and_then(|a| a["browser_download_url"].as_str())
+        .map(|s| s.to_string());
+
+    let file_name = assets
+        .and_then(|arr| {
+            arr.iter().find(|a| {
+                a["name"].as_str()
+                    .map(|n| n.ends_with(".zip"))
+                    .unwrap_or(false)
+            })
+        })
+        .and_then(|a| a["name"].as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("wwm-overlay-{}.zip", latest_version));
+
+    let release_url = json["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/SnowiyQ/Where-Winds-Meet-Midi-Player/releases/latest")
+        .to_string();
+
+    match download_url {
+        Some(url) => Ok(Some(UpdateInfo {
+            version: latest_version,
+            download_url: url,
+            release_url,
+            file_name,
+        })),
+        None => Ok(None),
+    }
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.')
+            .filter_map(|s| s.parse().ok())
+            .collect()
+    };
+
+    let latest_parts = parse(latest);
+    let current_parts = parse(current);
+
+    for i in 0..latest_parts.len().max(current_parts.len()) {
+        let l = latest_parts.get(i).unwrap_or(&0);
+        let c = current_parts.get(i).unwrap_or(&0);
+        if l > c { return true; }
+        if l < c { return false; }
+    }
+    false
+}
+
+#[tauri::command]
+async fn download_update(download_url: String, file_name: String) -> Result<String, String> {
+    use std::io::Read;
+
+    // Download to temp directory
+    let temp_dir = std::env::temp_dir();
+    let download_path = temp_dir.join(&file_name);
+
+    println!("[UPDATE] Downloading from: {}", download_url);
+    println!("[UPDATE] Saving to: {:?}", download_path);
+
+    let response = ureq::get(&download_url)
+        .set("User-Agent", "WWM-Overlay")
+        .call()
+        .map_err(|e| format!("Failed to download update: {}", e))?;
+
+    let mut bytes = Vec::new();
+    response.into_reader()
+        .take(100 * 1024 * 1024) // 100MB limit
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read download: {}", e))?;
+
+    std::fs::write(&download_path, &bytes)
+        .map_err(|e| format!("Failed to save update: {}", e))?;
+
+    println!("[UPDATE] Downloaded {} bytes", bytes.len());
+
+    Ok(download_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn install_update(zip_path: String, app_handle: AppHandle) -> Result<(), String> {
+    println!("[UPDATE] Installing from: {}", zip_path);
+
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
+
+    // Create update script that will:
+    // 1. Wait for app to close
+    // 2. Extract zip over current installation
+    // 3. Restart the app
+    let script_path = std::env::temp_dir().join("wwm_update.bat");
+    let script_content = format!(
+        r#"@echo off
+echo Updating WWM Overlay...
+timeout /t 2 /nobreak > nul
+powershell -Command "Expand-Archive -Path '{}' -DestinationPath '{}' -Force"
+echo Update complete! Restarting...
+start "" "{}"
+del "%~f0"
+"#,
+        zip_path.replace("\\", "\\\\"),
+        exe_dir.to_string_lossy().replace("\\", "\\\\"),
+        exe_path.to_string_lossy().replace("\\", "\\\\")
+    );
+
+    std::fs::write(&script_path, &script_content)
+        .map_err(|e| format!("Failed to create update script: {}", e))?;
+
+    println!("[UPDATE] Created update script at: {:?}", script_path);
+
+    // Start the update script
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", "/MIN", script_path.to_str().unwrap()])
+        .spawn()
+        .map_err(|e| format!("Failed to start update script: {}", e))?;
+
+    // Exit the app
+    println!("[UPDATE] Exiting for update...");
+    app_handle.exit(0);
+
+    Ok(())
+}
 
 fn register_global_hotkeys() -> Vec<(&'static str, bool)> {
     let mut results = Vec::new();
@@ -648,6 +1044,9 @@ fn main() {
     // Set high priority for accurate MIDI timing
     set_high_priority();
 
+    // Load saved album path from config
+    load_saved_album_path();
+
     let app_state = Arc::new(Mutex::new(AppState::new()));
 
     tauri::Builder::default()
@@ -670,11 +1069,14 @@ fn main() {
             get_key_mode,
             set_octave_shift,
             get_octave_shift,
+            set_speed,
+            get_speed,
             set_modifier_delay,
             get_modifier_delay,
             set_cloud_mode,
             get_cloud_mode,
             is_game_focused,
+            is_game_window_found,
             test_all_keys,
             test_all_keys_36,
             spam_test,
@@ -684,7 +1086,15 @@ fn main() {
             focus_game_window,
             seek,
             import_midi_file,
+            download_midi_from_url,
+            get_visualizer_notes,
             open_url,
+            get_album_path,
+            set_album_path,
+            reset_album_path,
+            check_for_update,
+            download_update,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,6 +2,8 @@
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { onMount } from "svelte";
   import {
     noteMode,
     setNoteMode,
@@ -12,7 +14,18 @@
     testAllKeys,
     testAllKeys36,
     smartPause,
+    loadMidiFiles,
   } from "../stores/player.js";
+
+  let scrollContainer;
+  let showTopMask = false;
+  let showBottomMask = false;
+
+  function handleScroll(e) {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    showTopMask = scrollTop > 10;
+    showBottomMask = scrollTop + clientHeight < scrollHeight - 10;
+  }
 
   let isTesting = false;
   let isTesting36 = false;
@@ -24,18 +37,69 @@
   let spamDelay = 20;
   let chordSize = 3;
   let cloudMode = false;
+  let albumPath = "";
+  let isChangingPath = false;
+
+  const APP_VERSION = "1.0.6";
+  let updateAvailable = null;
 
   const isDev = import.meta.env.DEV;
 
-  // Load cloud mode on mount
-  import { onMount } from "svelte";
   onMount(async () => {
+    // Check initial scroll state
+    setTimeout(() => {
+      if (scrollContainer) {
+        const { scrollHeight, clientHeight } = scrollContainer;
+        showBottomMask = scrollHeight > clientHeight;
+      }
+    }, 100);
+
+    // Load cloud mode
     try {
       cloudMode = await invoke('get_cloud_mode');
     } catch (e) {
       console.error("Failed to get cloud mode:", e);
     }
+
+    // Load album path
+    try {
+      albumPath = await invoke('get_album_path');
+    } catch (e) {
+      console.error("Failed to get album path:", e);
+    }
+
+    // Check for updates
+    checkForUpdates();
   });
+
+  async function checkForUpdates() {
+    try {
+      const response = await fetch('https://api.github.com/repos/SnowiyQ/Where-Winds-Meet-Midi-Player/releases/latest');
+      if (!response.ok) return;
+      const data = await response.json();
+      const latestVersion = data.tag_name?.replace(/^v/, '') || '';
+      if (latestVersion && compareVersions(latestVersion, APP_VERSION) > 0) {
+        updateAvailable = {
+          version: latestVersion,
+          url: data.html_url
+        };
+      }
+    } catch (e) {
+      console.log('Update check failed:', e);
+    }
+  }
+
+  function compareVersions(a, b) {
+    const partsA = a.split('.').map(Number);
+    const partsB = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+      const numA = partsA[i] || 0;
+      const numB = partsB[i] || 0;
+      if (numA > numB) return 1;
+      if (numA < numB) return -1;
+    }
+    return 0;
+  }
 
   async function toggleCloudMode() {
     cloudMode = !cloudMode;
@@ -44,6 +108,36 @@
     } catch (e) {
       console.error("Failed to set cloud mode:", e);
       cloudMode = !cloudMode; // revert on error
+    }
+  }
+
+  async function changeAlbumPath() {
+    if (isChangingPath) return;
+    isChangingPath = true;
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Album Folder",
+      });
+      if (selected) {
+        await invoke('set_album_path', { path: selected });
+        albumPath = selected;
+        await loadMidiFiles(); // Reload files from new location
+      }
+    } catch (e) {
+      console.error("Failed to change album path:", e);
+    } finally {
+      isChangingPath = false;
+    }
+  }
+
+  async function resetAlbumPath() {
+    try {
+      albumPath = await invoke('reset_album_path');
+      await loadMidiFiles(); // Reload files from default location
+    } catch (e) {
+      console.error("Failed to reset album path:", e);
     }
   }
 
@@ -178,7 +272,11 @@
   </div>
 
   <!-- Settings Sections -->
-  <div class="flex-1 overflow-y-auto space-y-6 pr-2">
+  <div
+    bind:this={scrollContainer}
+    onscroll={handleScroll}
+    class="flex-1 overflow-y-auto space-y-6 pr-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
+  >
     <!-- Note Mode Section -->
     <div
       class="bg-white/5 rounded-xl p-4"
@@ -502,6 +600,52 @@
       </div>
     </div>
 
+    <!-- Album Location Section -->
+    <div
+      class="bg-white/5 rounded-xl p-4"
+      in:fly={{ y: 10, duration: 200, delay: 175 }}
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <Icon icon="mdi:folder-music" class="w-5 h-5 text-[#1db954]" />
+        <h3 class="text-lg font-semibold">Album Location</h3>
+      </div>
+
+      <p class="text-sm text-white/60 mb-4">
+        Choose where to load MIDI files from
+      </p>
+
+      <!-- Current Path Display -->
+      <div class="bg-white/5 rounded-lg p-3 mb-4">
+        <p class="text-xs text-white/40 mb-1">Current folder:</p>
+        <p class="text-sm text-white font-mono truncate" title={albumPath}>
+          {albumPath || "Loading..."}
+        </p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex gap-3">
+        <button
+          class="flex-1 py-3 px-4 rounded-lg bg-white/10 hover:bg-white/15 transition-colors flex items-center justify-center gap-2 {isChangingPath ? 'opacity-50 cursor-not-allowed' : ''}"
+          onclick={changeAlbumPath}
+          disabled={isChangingPath}
+        >
+          <Icon
+            icon={isChangingPath ? "mdi:loading" : "mdi:folder-open"}
+            class="w-5 h-5 {isChangingPath ? 'animate-spin' : ''}"
+          />
+          <span class="font-medium text-sm">{isChangingPath ? "Selecting..." : "Browse"}</span>
+        </button>
+        <button
+          class="py-3 px-4 rounded-lg bg-white/10 hover:bg-white/15 transition-colors flex items-center justify-center gap-2"
+          onclick={resetAlbumPath}
+          title="Reset to default (./album)"
+        >
+          <Icon icon="mdi:restore" class="w-5 h-5" />
+          <span class="font-medium text-sm">Reset</span>
+        </button>
+      </div>
+    </div>
+
     <!-- About Section -->
     <div
       class="bg-white/5 rounded-xl p-4"
@@ -512,9 +656,31 @@
         <h3 class="text-lg font-semibold">About</h3>
       </div>
 
-      <div class="text-sm text-white/60 space-y-2">
+      <div class="text-sm text-white/60 space-y-3">
         <p>Midi Player for Where Winds Meet</p>
-        <p class="text-xs text-white/40">By YueLyn</p>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-white/40">By YueLyn</span>
+          <span class="text-white/20">•</span>
+          <span class="text-xs text-white/40">v{APP_VERSION}</span>
+        </div>
+
+        {#if updateAvailable}
+          <button
+            class="w-full flex items-center gap-3 p-3 rounded-lg bg-[#1db954]/10 hover:bg-[#1db954]/20 transition-colors"
+            onclick={() => invoke('open_url', { url: updateAvailable.url })}
+          >
+            <Icon icon="mdi:download-circle" class="w-6 h-6 text-[#1db954]" />
+            <div class="text-left">
+              <p class="text-sm font-medium text-[#1db954]">Update Available</p>
+              <p class="text-xs text-white/50">v{updateAvailable.version} - Click to download</p>
+            </div>
+          </button>
+        {:else}
+          <div class="flex items-center gap-2 text-xs text-white/40">
+            <Icon icon="mdi:check-circle" class="w-4 h-4 text-[#1db954]" />
+            <span>You're on the latest version</span>
+          </div>
+        {/if}
       </div>
     </div>
   </div>

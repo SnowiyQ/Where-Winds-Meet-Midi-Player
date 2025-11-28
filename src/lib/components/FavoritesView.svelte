@@ -1,6 +1,9 @@
 <script>
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
+  import { flip } from "svelte/animate";
+  import { dndzone } from "svelte-dnd-action";
+  import { onMount } from "svelte";
   import {
     favorites,
     currentFile,
@@ -10,6 +13,51 @@
     isPaused,
     toggleFavorite,
   } from "../stores/player.js";
+
+  const flipDurationMs = 300;
+
+  let scrollContainer;
+  let showTopMask = false;
+  let showBottomMask = false;
+
+  // Drag and drop state
+  let items = [];
+  let isDragging = false;
+
+  $: {
+    if (!isDragging) {
+      items = $favorites.map((file) => ({
+        ...file,
+        id: file.path,
+      }));
+    }
+  }
+
+  function handleDndConsider(e) {
+    isDragging = true;
+    items = e.detail.items;
+  }
+
+  function handleDndFinalize(e) {
+    items = e.detail.items;
+    favorites.set(items.map(({ id, ...file }) => file));
+    isDragging = false;
+  }
+
+  function handleScroll(e) {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    showTopMask = scrollTop > 10;
+    showBottomMask = scrollTop + clientHeight < scrollHeight - 10;
+  }
+
+  onMount(() => {
+    setTimeout(() => {
+      if (scrollContainer) {
+        const { scrollHeight, clientHeight } = scrollContainer;
+        showBottomMask = scrollHeight > clientHeight;
+      }
+    }, 100);
+  });
 
   async function handlePlay(file) {
     // Add to playlist if not already there
@@ -64,107 +112,134 @@
     {/if}
   </div>
 
-  <!-- Favorites List -->
-  <div class="flex-1 overflow-y-auto space-y-1 pr-2">
-    {#each $favorites as file, index (file.path)}
-      <div
-        class="group spotify-list-item flex items-center gap-4 py-2 transition-all duration-200 {$currentFile ===
-        file.path
-          ? 'bg-white/10 ring-1 ring-white/5'
-          : 'hover:bg-white/5'}"
-        in:fly={{ y: 10, duration: 200, delay: Math.min(index * 30, 300) }}
-      >
-        <!-- Number / Play Button / Playing Indicator -->
-        <div class="w-8 flex items-center justify-center flex-shrink-0">
-          {#if $currentFile === file.path && $isPlaying && !$isPaused}
-            <div class="flex items-end gap-0.5 h-4">
-              <div
-                class="w-0.5 bg-[#1db954] rounded-full"
-                style="height: 60%; animation: music-bar-1 0.6s ease-in-out infinite;"
-              ></div>
-              <div
-                class="w-0.5 bg-[#1db954] rounded-full"
-                style="height: 100%; animation: music-bar-2 0.8s ease-in-out infinite;"
-              ></div>
-              <div
-                class="w-0.5 bg-[#1db954] rounded-full"
-                style="height: 80%; animation: music-bar-3 0.7s ease-in-out infinite;"
-              ></div>
-            </div>
-          {:else}
-            <span
-              class="text-sm text-white/40 {$currentFile === file.path
-                ? 'text-[#1db954] font-semibold'
-                : ''} group-hover:hidden">{index + 1}</span
-            >
-            <button
-              class="hidden group-hover:flex items-center justify-center w-7 h-7 rounded-full bg-[#1db954] hover:scale-110 transition-transform shadow-lg"
-              onclick={() => handlePlay(file)}
-              title="Play"
-            >
-              <Icon icon="mdi:play" class="w-4 h-4 text-black" />
-            </button>
-          {/if}
-        </div>
-
-        <!-- Song Info -->
+  <!-- Favorites List with DnD -->
+  {#if $favorites.length > 0}
+    <div
+      bind:this={scrollContainer}
+      onscroll={handleScroll}
+      class="flex-1 overflow-y-auto space-y-1 pr-2 dnd-zone {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
+      use:dndzone={{
+        items,
+        flipDurationMs,
+        dropTargetStyle: { outline: "none" },
+      }}
+      onconsider={handleDndConsider}
+      onfinalize={handleDndFinalize}
+    >
+      {#each items as item, index (item.id)}
         <div
-          class="flex-1 min-w-0 cursor-pointer"
-          role="button"
-          tabindex="0"
-          onclick={() => handlePlay(file)}
-          onkeydown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              handlePlay(file);
-            }
-          }}
+          class="group spotify-list-item flex items-center gap-4 py-2 cursor-grab active:cursor-grabbing transition-all duration-200 {$currentFile ===
+          item.path
+            ? 'bg-white/10 ring-1 ring-white/5'
+            : 'hover:bg-white/5'}"
+          animate:flip={{ duration: flipDurationMs }}
         >
-          <p
-            class="text-sm font-medium text-white truncate transition-colors {$currentFile ===
-            file.path
-              ? 'text-[#1db954]'
-              : 'group-hover:text-white'}"
+          <!-- Drag Handle -->
+          <div
+            class="w-6 flex items-center justify-center text-white/30 hover:text-white/60 flex-shrink-0 transition-colors"
           >
-            {file.name}
-          </p>
-          <p class="text-xs text-white/40">MIDI Track</p>
-        </div>
+            <Icon icon="mdi:drag-vertical" class="w-5 h-5" />
+          </div>
 
-        <!-- Duration -->
-        <div class="text-sm text-white/40 flex-shrink-0 tabular-nums">
-          {file.duration
-            ? `${Math.floor(file.duration / 60)}:${String(Math.floor(file.duration % 60)).padStart(2, "0")}`
-            : "--:--"}
-        </div>
+          <!-- Number / Play Button / Playing Indicator -->
+          <div class="w-8 flex items-center justify-center flex-shrink-0">
+            {#if $currentFile === item.path && $isPlaying && !$isPaused}
+              <div class="flex items-end gap-0.5 h-4">
+                <div
+                  class="w-0.5 bg-[#1db954] rounded-full"
+                  style="height: 60%; animation: music-bar-1 0.6s ease-in-out infinite;"
+                ></div>
+                <div
+                  class="w-0.5 bg-[#1db954] rounded-full"
+                  style="height: 100%; animation: music-bar-2 0.8s ease-in-out infinite;"
+                ></div>
+                <div
+                  class="w-0.5 bg-[#1db954] rounded-full"
+                  style="height: 80%; animation: music-bar-3 0.7s ease-in-out infinite;"
+                ></div>
+              </div>
+            {:else}
+              <span
+                class="text-sm text-white/40 {$currentFile === item.path
+                  ? 'text-[#1db954] font-semibold'
+                  : ''} group-hover:hidden">{index + 1}</span
+              >
+              <button
+                class="hidden group-hover:flex items-center justify-center w-7 h-7 rounded-full bg-[#1db954] hover:scale-110 transition-transform shadow-lg"
+                onclick={() => handlePlay(item)}
+                title="Play"
+              >
+                <Icon icon="mdi:play" class="w-4 h-4 text-black" />
+              </button>
+            {/if}
+          </div>
 
-        <!-- Action Buttons -->
-        <div class="flex items-center gap-1 flex-shrink-0">
-          <button
-            class="p-1.5 rounded-full text-white/30 opacity-0 group-hover:opacity-100 hover:text-white transition-all"
-            onclick={(e) => {
-              e.stopPropagation();
-              addToQueue(file);
+          <!-- Song Info -->
+          <div
+            class="flex-1 min-w-0 cursor-pointer"
+            role="button"
+            tabindex="0"
+            onclick={() => handlePlay(item)}
+            onkeydown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handlePlay(item);
+              }
             }}
-            title="Add to queue"
           >
-            <Icon icon="mdi:playlist-plus" class="w-5 h-5" />
-          </button>
+            <p
+              class="text-sm font-medium text-white truncate transition-colors {$currentFile ===
+              item.path
+                ? 'text-[#1db954]'
+                : 'group-hover:text-white'}"
+            >
+              {item.name}
+            </p>
+            <p class="text-xs text-white/40">MIDI Track</p>
+          </div>
 
-          <button
-            class="p-1.5 rounded-full text-[#1db954] hover:text-red-400 transition-all"
-            onclick={(e) => {
-              e.stopPropagation();
-              toggleFavorite(file);
-            }}
-            title="Remove from favorites"
-          >
-            <Icon icon="mdi:heart" class="w-5 h-5" />
-          </button>
+          <!-- Duration -->
+          <div class="text-sm text-white/40 flex-shrink-0 tabular-nums">
+            {item.duration
+              ? `${Math.floor(item.duration / 60)}:${String(Math.floor(item.duration % 60)).padStart(2, "0")}`
+              : "--:--"}
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              class="p-1.5 rounded-full text-white/30 opacity-0 group-hover:opacity-100 hover:text-white transition-all"
+              onclick={(e) => {
+                e.stopPropagation();
+                addToQueue(item);
+              }}
+              title="Add to queue"
+            >
+              <Icon icon="mdi:playlist-plus" class="w-5 h-5" />
+            </button>
+
+            <button
+              class="p-1.5 rounded-full text-[#1db954] hover:text-red-400 transition-all"
+              onclick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(item);
+              }}
+              title="Remove from favorites"
+            >
+              <Icon icon="mdi:heart" class="w-5 h-5" />
+            </button>
+          </div>
         </div>
-      </div>
-    {/each}
-  </div>
+      {/each}
+    </div>
+
+    <div
+      class="pt-4 mt-4 border-t border-white/10 flex items-center justify-center gap-2 text-white/30"
+    >
+      <Icon icon="mdi:gesture-swipe-vertical" class="w-4 h-4" />
+      <p class="text-xs">Drag to reorder</p>
+    </div>
+  {/if}
 
   {#if $favorites.length === 0}
     <div
@@ -183,3 +258,13 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .dnd-zone {
+    min-height: 100px;
+  }
+
+  :global(.dnd-zone > div) {
+    outline: none !important;
+  }
+</style>

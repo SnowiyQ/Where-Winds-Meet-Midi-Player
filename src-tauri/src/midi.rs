@@ -586,6 +586,7 @@ pub fn play_midi(
     note_mode: Arc<AtomicU8>,
     key_mode: Arc<AtomicU8>,
     octave_shift: Arc<std::sync::atomic::AtomicI8>,
+    speed: Arc<std::sync::atomic::AtomicU16>,
     current_position: Arc<std::sync::Mutex<f64>>,
     seek_offset: Arc<std::sync::Mutex<f64>>,
     window: Window,
@@ -609,12 +610,10 @@ pub fn play_midi(
     });
 
     loop {
-        let start_time = Instant::now();
         // Track which key is pressed for each MIDI note (note -> key that was pressed)
         let mut note_to_pressed_key: std::collections::HashMap<u8, String> = std::collections::HashMap::new();
         // Track reference count for each key (multiple notes might map to same key)
         let mut key_active_count: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
-        let mut total_paused_duration = Duration::ZERO;
 
         // Helper to release all keys and reset modifier counts
         let release_all_keys = |key_active_count: &std::collections::HashMap<String, i32>| {
@@ -627,6 +626,10 @@ pub fn play_midi(
             crate::keyboard::reset_modifier_counts();
         };
 
+        // Track song position in milliseconds (not affected by speed changes)
+        let mut song_position_ms: u64 = offset_ms;
+        let mut last_event_time = Instant::now();
+
         for event in &midi_data.events {
             if event.time_ms < offset_ms {
                 continue;
@@ -637,36 +640,56 @@ pub fn play_midi(
                 return;
             }
 
-            let target_time = Duration::from_millis(event.time_ms - offset_ms);
+            // Calculate delta from last processed position to this event (in song time)
+            let delta_song_ms = event.time_ms.saturating_sub(song_position_ms);
 
-            // Wait until we reach the event time
-            loop {
-                if !is_playing.load(Ordering::SeqCst) {
-                    release_all_keys(&key_active_count);
-                    return;
-                }
+            // Wait for the delta time, adjusted by current speed
+            if delta_song_ms > 0 {
+                let mut remaining_song_ms = delta_song_ms as f64;
 
-                if is_paused.load(Ordering::SeqCst) {
-                    let pause_start = Instant::now();
-                    while is_paused.load(Ordering::SeqCst) && is_playing.load(Ordering::SeqCst) {
-                        std::thread::sleep(Duration::from_millis(50));
-                        if !is_playing.load(Ordering::SeqCst) {
-                            release_all_keys(&key_active_count);
-                            return;
-                        }
+                while remaining_song_ms > 0.0 {
+                    if !is_playing.load(Ordering::SeqCst) {
+                        release_all_keys(&key_active_count);
+                        return;
                     }
-                    total_paused_duration += pause_start.elapsed();
+
+                    // Handle pause
+                    if is_paused.load(Ordering::SeqCst) {
+                        while is_paused.load(Ordering::SeqCst) && is_playing.load(Ordering::SeqCst) {
+                            std::thread::sleep(Duration::from_millis(50));
+                            if !is_playing.load(Ordering::SeqCst) {
+                                release_all_keys(&key_active_count);
+                                return;
+                            }
+                        }
+                        last_event_time = Instant::now();
+                        continue;
+                    }
+
+                    // Get current speed (stored as speed * 100)
+                    let current_speed = speed.load(Ordering::SeqCst) as f64 / 100.0;
+
+                    // Calculate real time to wait based on speed
+                    // sleep for a small chunk and update
+                    let sleep_ms = 2.0_f64.min(remaining_song_ms / current_speed);
+                    std::thread::sleep(Duration::from_micros((sleep_ms * 1000.0) as u64));
+
+                    let elapsed = last_event_time.elapsed();
+                    last_event_time = Instant::now();
+
+                    // Convert real elapsed time to song time
+                    let song_ms_passed = elapsed.as_secs_f64() * 1000.0 * current_speed;
+                    remaining_song_ms -= song_ms_passed;
+
+                    // Update current position
+                    let new_pos = (event.time_ms as f64 - remaining_song_ms.max(0.0)) / 1000.0;
+                    *current_position.lock().unwrap() = new_pos;
                 }
-
-                let effective_elapsed = start_time.elapsed().saturating_sub(total_paused_duration);
-                *current_position.lock().unwrap() = effective_elapsed.as_secs_f64() + (offset_ms as f64 / 1000.0);
-
-                if effective_elapsed >= target_time {
-                    break;
-                }
-
-                std::thread::sleep(Duration::from_millis(1));
             }
+
+            // Update song position to this event's time
+            song_position_ms = event.time_ms;
+            last_event_time = Instant::now();
 
             // Get key based on key mode and note calculation mode (read in realtime for live switching)
             let current_key_mode = KeyMode::from(key_mode.load(Ordering::SeqCst));
@@ -708,6 +731,9 @@ pub fn play_midi(
                     // Simple press-release for each note (game doesn't need hold)
                     crate::keyboard::key_down(&key);
                     crate::keyboard::key_up(&key);
+
+                    // Emit note event for visualizer
+                    let _ = window.emit("note-event", &key);
                 }
                 EventType::NoteOff => {
                     // Ignore note off - we already released on note on
