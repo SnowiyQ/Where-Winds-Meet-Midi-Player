@@ -319,6 +319,14 @@
     // Save window position every 5 seconds (only if changed)
     savePositionInterval = setInterval(saveWindowPosition, 5000);
 
+    // Listen for open-update-modal event from SettingsView
+    const handleOpenUpdateModal = () => {
+      if (updateAvailable) {
+        showUpdateModal = true;
+      }
+    };
+    window.addEventListener('open-update-modal', handleOpenUpdateModal);
+
     // Listen for global shortcut events from Rust backend
     const unlisten = await listen("global-shortcut", async (event) => {
       const action = event.payload;
@@ -354,6 +362,7 @@
 
     return () => {
       unlisten();
+      window.removeEventListener('open-update-modal', handleOpenUpdateModal);
     };
   });
 

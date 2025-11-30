@@ -861,7 +861,7 @@
         {#if updateAvailable}
           <button
             class="w-full flex items-center gap-3 p-3 rounded-lg bg-[#1db954]/10 hover:bg-[#1db954]/20 transition-colors"
-            onclick={() => invoke('open_url', { url: updateAvailable.url })}
+            onclick={() => window.dispatchEvent(new CustomEvent('open-update-modal'))}
           >
             <Icon icon="mdi:download-circle" class="w-6 h-6 text-[#1db954]" />
             <div class="text-left">
