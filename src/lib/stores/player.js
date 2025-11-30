@@ -594,6 +594,9 @@ export async function setNoteMode(mode) {
     noteMode.set(mode);
     localStorage.setItem(STORAGE_KEYS.NOTE_MODE, mode);
     console.log(`Note mode set to: ${mode}`);
+    // Sync to band members if host
+    const { broadcastSettings } = await import('./band.js');
+    broadcastSettings();
   } catch (error) {
     console.error('Failed to set note mode:', error);
   }
@@ -606,6 +609,9 @@ export async function setOctaveShift(shift) {
     await invoke('set_octave_shift', { shift: clamped });
     octaveShift.set(clamped);
     console.log(`Octave shift set to: ${clamped}`);
+    // Sync to band members if host
+    const { broadcastSettings } = await import('./band.js');
+    broadcastSettings();
   } catch (error) {
     console.error('Failed to set octave shift:', error);
   }
@@ -618,6 +624,9 @@ export async function setKeyMode(mode) {
     keyMode.set(mode);
     localStorage.setItem(STORAGE_KEYS.KEY_MODE, mode);
     console.log(`Key mode set to: ${mode}`);
+    // Sync to band members if host
+    const { broadcastSettings } = await import('./band.js');
+    broadcastSettings();
   } catch (error) {
     console.error('Failed to set key mode:', error);
   }
@@ -646,6 +655,9 @@ export async function setSpeed(newSpeed) {
   try {
     await invoke('set_speed', { speed: clamped });
     console.log(`Speed set to: ${clamped}x`);
+    // Sync to band members if host
+    const { broadcastSettings } = await import('./band.js');
+    broadcastSettings();
   } catch (error) {
     console.error('Failed to set speed:', error);
   }

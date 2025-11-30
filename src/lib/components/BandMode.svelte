@@ -29,26 +29,69 @@
     allMembersReady,
     bandFilePath,
     hostDelay,
+    kickPlayer,
+    autoReady,
+    isCalibrating,
+    startCalibration,
+    stopCalibration,
   } from "../stores/band.js";
   import { midiFiles, isPlaying, isPaused } from "../stores/player.js";
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onMount } from "svelte";
 
   const dispatch = createEventDispatcher();
 
   let joinCode = "";
   let playerName = "Player";
   let isStartingPlayback = false;
+
+  // Load saved player name
+  const PLAYER_NAME_KEY = "wwm-band-player-name";
   let isCreating = false;
   let isJoining = false;
   let error = null;
   let isLoadingTracks = false;
   let copied = false;
 
+  // Scroll mask
+  let scrollContainer;
+  let showTopMask = false;
+  let showBottomMask = false;
+
+  function handleScroll(e) {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    showTopMask = scrollTop > 10;
+    showBottomMask = scrollTop + clientHeight < scrollHeight - 10;
+  }
+
+  onMount(() => {
+    // Load saved player name
+    const savedName = localStorage.getItem(PLAYER_NAME_KEY);
+    if (savedName) {
+      playerName = savedName;
+    }
+
+    setTimeout(() => {
+      if (scrollContainer) {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+        showBottomMask = scrollHeight > clientHeight;
+      }
+    }, 100);
+  });
+
+  // Save player name when changed
+  function savePlayerName() {
+    if (playerName.trim()) {
+      localStorage.setItem(PLAYER_NAME_KEY, playerName.trim());
+    }
+  }
+
   async function handleCreateRoom() {
     isCreating = true;
     error = null;
+    const name = playerName || "Host";
+    savePlayerName();
     try {
-      await createRoom(playerName || "Host");
+      await createRoom(name);
     } catch (e) {
       error = e.message || "Failed to create room";
     }
@@ -62,8 +105,10 @@
     }
     isJoining = true;
     error = null;
+    const name = playerName || "Player";
+    savePlayerName();
     try {
-      await joinRoom(joinCode, playerName || "Player");
+      await joinRoom(joinCode, name);
     } catch (e) {
       error = e.message || "Failed to join room";
     }
@@ -144,7 +189,11 @@
 </script>
 
 <div class="h-full flex flex-col min-h-0 -mx-1">
-  <div class="flex-1 overflow-y-auto scrollbar-thin min-h-0 px-1 pb-2">
+  <div
+    bind:this={scrollContainer}
+    onscroll={handleScroll}
+    class="flex-1 overflow-y-auto scrollbar-thin min-h-0 px-1 pb-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
+  >
     <!-- Header -->
     <div class="mb-4">
       <div class="flex items-center gap-3 mb-2">
@@ -175,6 +224,8 @@
             bind:value={playerName}
             placeholder="Enter your name"
             class="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[#1db954] focus:border-transparent"
+            onblur={savePlayerName}
+            onchange={savePlayerName}
           />
         </div>
 
@@ -283,19 +334,38 @@
           <div>
             <div class="flex items-center justify-between mb-1">
               <p class="text-xs text-white/50">Sync Delay</p>
-              <span class="text-xs text-white/70 font-mono">{$hostDelay}ms</span>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-white/70 font-mono">{$hostDelay}ms</span>
+                <button
+                  class="px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 {$isCalibrating
+                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                    : 'bg-[#1db954]/20 text-[#1db954] hover:bg-[#1db954]/30'}"
+                  onclick={() => $isCalibrating ? stopCalibration() : startCalibration()}
+                  disabled={$connectedPeers.length < 2}
+                  title={$connectedPeers.length < 2 ? "Need at least 1 member to calibrate" : $isCalibrating ? "Stop calibration" : "Test sync timing"}
+                >
+                  <Icon icon={$isCalibrating ? "mdi:stop" : "mdi:metronome"} class="w-3 h-3" />
+                  {$isCalibrating ? "Stop" : "Test"}
+                </button>
+              </div>
             </div>
             <input
               type="range"
-              min="0"
+              min="-2000"
               max="5000"
               step="50"
               bind:value={$hostDelay}
               class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#1db954]"
             />
-            <p class="text-[10px] text-white/40 mt-1">
-              Delay host start to sync with members (0-5s)
-            </p>
+            {#if $isCalibrating}
+              <p class="text-[10px] text-yellow-400 mt-1">
+                Adjust slider until all players sound in sync
+              </p>
+            {:else}
+              <p class="text-[10px] text-white/40 mt-1">
+                Offset host timing (-2s to +5s)
+              </p>
+            {/if}
           </div>
         {/if}
 
@@ -423,6 +493,16 @@
                     </div>
                   {/if}
                   <span class="text-[9px] {getLatencyColor(peer.latency)}">{peer.latency}ms</span>
+                  <!-- Kick button (host only, for non-host players) -->
+                  {#if $isHost && !peer.isHost && !$isPlaying}
+                    <button
+                      class="p-1 rounded hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-colors"
+                      onclick={() => kickPlayer(peer.id)}
+                      title="Kick player"
+                    >
+                      <Icon icon="mdi:close" class="w-3.5 h-3.5" />
+                    </button>
+                  {/if}
                 </div>
 
                 {#if $bandPlayMode === 'split'}
@@ -570,6 +650,22 @@
                 </p>
               {/if}
             {/if}
+          </div>
+        {/if}
+
+        <!-- Auto-Ready Toggle (Member only) -->
+        {#if !$isHost}
+          <div class="flex items-center justify-between p-2 rounded-lg bg-white/5">
+            <div class="flex items-center gap-2">
+              <Icon icon="mdi:lightning-bolt" class="w-3.5 h-3.5 text-white/50" />
+              <span class="text-xs text-white/70">Auto-ready</span>
+            </div>
+            <button
+              class="w-8 h-4 rounded-full transition-colors {$autoReady ? 'bg-[#1db954]' : 'bg-white/20'}"
+              onclick={() => autoReady.update(v => !v)}
+            >
+              <div class="w-3 h-3 rounded-full bg-white transition-transform {$autoReady ? 'translate-x-4' : 'translate-x-0.5'}"></div>
+            </button>
           </div>
         {/if}
 

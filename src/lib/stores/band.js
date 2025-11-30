@@ -2,6 +2,42 @@ import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import Peer from 'peerjs';
 
+// Import player stores for syncing
+import {
+  speed,
+  noteMode,
+  keyMode,
+  octaveShift,
+  setNoteMode,
+  setKeyMode,
+  setOctaveShift,
+  setSpeed
+} from './player.js';
+
+// Store original settings before joining band (to restore on leave)
+let originalSettings = null;
+
+function saveOriginalSettings() {
+  originalSettings = {
+    speed: get(speed),
+    noteMode: get(noteMode),
+    keyMode: get(keyMode),
+    octaveShift: get(octaveShift)
+  };
+  console.log('[BAND] Saved original settings:', originalSettings);
+}
+
+async function restoreOriginalSettings() {
+  if (originalSettings) {
+    console.log('[BAND] Restoring original settings:', originalSettings);
+    await setSpeed(originalSettings.speed);
+    await setNoteMode(originalSettings.noteMode);
+    await setKeyMode(originalSettings.keyMode);
+    await setOctaveShift(originalSettings.octaveShift);
+    originalSettings = null;
+  }
+}
+
 // Band mode state
 export const bandEnabled = writable(false);
 export const isHost = writable(false);
@@ -16,13 +52,27 @@ export const bandSelectedSong = writable(null); // { name, path, ... }
 export const bandPlayMode = writable('split'); // 'split' = auto-distribute notes, 'track' = each player picks a track
 export const myReady = writable(false); // Member's ready state
 export const bandFilePath = writable(null); // Path to use for playback (local or temp)
-export const hostDelay = writable(300); // Host delay in ms (adjustable 0-500ms)
+export const autoReady = writable(true); // Auto-ready when song is received
+export const isCalibrating = writable(false); // Calibration mode active
+// Load saved hostDelay from localStorage
+const savedHostDelay = typeof localStorage !== 'undefined'
+  ? parseInt(localStorage.getItem('hostDelay')) || 300
+  : 300;
+export const hostDelay = writable(savedHostDelay);
+
+// Persist hostDelay changes to localStorage
+hostDelay.subscribe(value => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('hostDelay', value.toString());
+  }
+});
 
 // Internal state
 let peer = null;
 let connections = new Map(); // peerId -> DataConnection
 let latencyIntervals = new Map();
 let syncInterval = null;
+let calibrationInterval = null;
 
 // Generate short room code
 function generateRoomCode() {
@@ -124,6 +174,10 @@ export async function joinRoom(code, playerName = 'Player') {
         cleanup();
 
         console.log('Connected to room:', code);
+
+        // Save original settings before joining (to restore on leave)
+        saveOriginalSettings();
+
         isHost.set(false);
         roomCode.set(code);
         bandStatus.set('connected');
@@ -360,10 +414,37 @@ function handleMessage(data, fromPeerId, conn) {
 
     case 'ready_reset':
       // Reset all ready states (on stop)
-      myReady.set(false);
+      handleReadyReset();
+      break;
+
+    case 'kicked':
+      // We've been kicked by the host
+      console.log('You were kicked from the room');
+      handleKicked();
+      break;
+
+    case 'peer_kicked':
+      // Another player was kicked (broadcast from host)
       connectedPeers.update(peers =>
-        peers.map(p => ({ ...p, ready: p.isHost ? true : false }))
+        peers.filter(p => p.id !== data.peerId)
       );
+      break;
+
+    case 'settings_sync':
+      // Host synced settings - apply them (member only)
+      if (!$isHost) {
+        handleSettingsSync(data);
+      }
+      break;
+
+    case 'calibrate_start':
+      // Host started calibration
+      handleCalibrateStart(data);
+      break;
+
+    case 'calibrate_stop':
+      // Host stopped calibration
+      handleCalibrateStop();
       break;
   }
 }
@@ -515,6 +596,38 @@ export function autoAssignSlots() {
   });
 }
 
+// Broadcast current settings to all members (host only)
+// Call this when host changes any setting during band mode
+export function broadcastSettings() {
+  if (!get(isHost)) return;
+  if (!get(bandEnabled)) return;
+
+  const settingsCmd = {
+    type: 'settings_sync',
+    settings: {
+      speed: get(speed),
+      noteMode: get(noteMode),
+      keyMode: get(keyMode),
+      octaveShift: get(octaveShift)
+    }
+  };
+
+  broadcast(settingsCmd);
+  console.log('[BAND] Broadcasting settings to members:', settingsCmd.settings);
+}
+
+// Handle settings sync from host (member only)
+async function handleSettingsSync(data) {
+  const { settings } = data;
+  if (!settings) return;
+
+  console.log('[BAND] Received settings sync from host:', settings);
+  await setSpeed(settings.speed);
+  await setNoteMode(settings.noteMode);
+  await setKeyMode(settings.keyMode);
+  await setOctaveShift(settings.octaveShift);
+}
+
 // Set band play mode (host only)
 export function setBandPlayMode(mode) {
   if (!get(isHost)) return;
@@ -526,6 +639,86 @@ export function setBandPlayMode(mode) {
   if (mode === 'split') {
     autoAssignSlots();
   }
+}
+
+// Start calibration mode (host only)
+// All players will play a repeating note pattern for sync testing
+export function startCalibration() {
+  if (!get(isHost)) return;
+
+  const peers = get(connectedPeers);
+  const maxLatency = Math.max(...peers.map(p => p.latency), 0);
+  const buffer = Math.max(maxLatency * 2 + 100, 300);
+  const startAt = Date.now() + buffer;
+
+  const calibrateCmd = {
+    type: 'calibrate_start',
+    startAt,
+    interval: 1500 // Play note every 1.5 seconds for easier listening
+  };
+
+  broadcast(calibrateCmd);
+  handleCalibrateStart(calibrateCmd);
+}
+
+// Stop calibration mode (host only)
+export function stopCalibration() {
+  if (!get(isHost)) return;
+
+  broadcast({ type: 'calibrate_stop' });
+  handleCalibrateStop();
+}
+
+// Handle calibration start (all peers)
+async function handleCalibrateStart(data) {
+  const { startAt, interval } = data;
+  const $isHost = get(isHost);
+
+  isCalibrating.set(true);
+
+  // Store reference time for calculating note timings
+  let noteIndex = 0;
+  const calibrationStartTime = startAt;
+
+  function scheduleNextNote() {
+    if (!get(isCalibrating)) return;
+
+    const now = Date.now();
+    // Host recalculates hostDelay each time so slider changes take effect
+    const hostOffset = $isHost ? get(hostDelay) : 0;
+
+    // Each note plays at: startAt + (noteIndex * interval) + hostOffset
+    const targetTime = calibrationStartTime + (noteIndex * interval) + hostOffset;
+    const delay = targetTime - now;
+
+    if (delay < -interval) {
+      // Way behind, skip to catch up
+      noteIndex++;
+      scheduleNextNote();
+      return;
+    }
+
+    calibrationInterval = setTimeout(async () => {
+      if (!get(isCalibrating)) return;
+
+      await invoke('press_key', { key: 'q' });
+      noteIndex++;
+      scheduleNextNote();
+    }, Math.max(0, delay));
+  }
+
+  scheduleNextNote();
+  console.log(`[BAND] Calibration started`);
+}
+
+// Handle calibration stop (all peers)
+function handleCalibrateStop() {
+  isCalibrating.set(false);
+  if (calibrationInterval) {
+    clearTimeout(calibrationInterval);
+    calibrationInterval = null;
+  }
+  console.log('[BAND] Calibration stopped');
 }
 
 // Synchronized play (host only)
@@ -541,13 +734,20 @@ export function bandPlay(position = 0) {
   const buffer = Math.max(maxLatency * 2 + 100, 300); // At least 300ms
   const startAt = Date.now() + buffer;
 
-  // For split mode, each peer needs their slot info
+  // Include all host settings for sync
   const playCmd = {
     type: 'play',
     startAt,
     position,
     mode,
-    totalPlayers
+    totalPlayers,
+    // Sync all host settings
+    settings: {
+      speed: get(speed),
+      noteMode: get(noteMode),
+      keyMode: get(keyMode),
+      octaveShift: get(octaveShift)
+    }
   };
 
   broadcast(playCmd);
@@ -612,7 +812,14 @@ export function bandSeek(position) {
   const seekCmd = {
     type: 'seek',
     seekAt,
-    position
+    position,
+    // Include settings for sync on seek
+    settings: {
+      speed: get(speed),
+      noteMode: get(noteMode),
+      keyMode: get(keyMode),
+      octaveShift: get(octaveShift)
+    }
   };
 
   broadcast(seekCmd);
@@ -621,9 +828,18 @@ export function bandSeek(position) {
 
 // Handle play command (all peers)
 async function handlePlayCommand(data) {
-  const { startAt, position, mode, totalPlayers } = data;
+  const { startAt, position, mode, totalPlayers, settings } = data;
   const now = Date.now();
   const $isHost = get(isHost);
+
+  // Apply host settings before playing (members only)
+  if (!$isHost && settings) {
+    console.log('[BAND] Applying host settings:', settings);
+    await setSpeed(settings.speed);
+    await setNoteMode(settings.noteMode);
+    await setKeyMode(settings.keyMode);
+    await setOctaveShift(settings.octaveShift);
+  }
 
   // Host adds extra delay to let members receive and process the command
   const hostOffset = $isHost ? get(hostDelay) : 0;
@@ -699,11 +915,45 @@ async function handleSongSelect(data) {
     console.log('Using local file:', localPath);
     bandFilePath.set(localPath);
     bandSelectedSong.set({ name, filename, path: localPath });
+
+    // Auto-ready if enabled
+    if (get(autoReady)) {
+      myReady.set(true);
+      // Notify host
+      const hostConn = connections.get('host');
+      if (hostConn && hostConn.open) {
+        hostConn.send({ type: 'ready', ready: true });
+      }
+      console.log('[BAND] Auto-ready: file found locally');
+    }
   } else {
     // We don't have the file - wait for song_data
     console.log('File not found locally, waiting for transfer:', filename);
     bandFilePath.set(null);
     bandSelectedSong.set({ name, filename, path: null, pending: true });
+  }
+}
+
+// Handle ready reset (on stop) - re-apply auto-ready if enabled
+function handleReadyReset() {
+  const $isHost = get(isHost);
+
+  // Reset ready states
+  connectedPeers.update(peers =>
+    peers.map(p => ({ ...p, ready: p.isHost ? true : false }))
+  );
+
+  // For members: check auto-ready
+  if (!$isHost && get(autoReady) && get(bandFilePath)) {
+    // Auto-ready since we have the song file
+    myReady.set(true);
+    const hostConn = connections.get('host');
+    if (hostConn && hostConn.open) {
+      hostConn.send({ type: 'ready', ready: true });
+    }
+    console.log('[BAND] Auto-ready after stop');
+  } else {
+    myReady.set(false);
   }
 }
 
@@ -719,6 +969,17 @@ async function handleSongData(data) {
     // Update state
     bandFilePath.set(tempPath);
     bandSelectedSong.update(song => song ? { ...song, path: tempPath, pending: false } : null);
+
+    // Auto-ready if enabled
+    if (get(autoReady)) {
+      myReady.set(true);
+      // Notify host
+      const hostConn = connections.get('host');
+      if (hostConn && hostConn.open) {
+        hostConn.send({ type: 'ready', ready: true });
+      }
+      console.log('[BAND] Auto-ready: file received');
+    }
   } catch (err) {
     console.error('Failed to save temp MIDI:', err);
   }
@@ -726,9 +987,19 @@ async function handleSongData(data) {
 
 // Handle seek command (all peers)
 async function handleSeekCommand(data) {
-  const { seekAt, position } = data;
+  const { seekAt, position, settings } = data;
   const now = Date.now();
   const delay = seekAt - now;
+  const $isHost = get(isHost);
+
+  // Apply host settings on seek (members only)
+  if (!$isHost && settings) {
+    console.log('[BAND] Applying host settings on seek:', settings);
+    await setSpeed(settings.speed);
+    await setNoteMode(settings.noteMode);
+    await setKeyMode(settings.keyMode);
+    await setOctaveShift(settings.octaveShift);
+  }
 
   const { seekTo } = await import('./player.js');
 
@@ -780,6 +1051,9 @@ async function handleRoomClosed() {
   const { stopPlayback } = await import('./player.js');
   await stopPlayback();
 
+  // Restore original settings before leaving
+  await restoreOriginalSettings();
+
   // Clean up without broadcasting (we're receiving, not sending)
   stopSyncPulse();
 
@@ -807,13 +1081,88 @@ async function handleRoomClosed() {
   bandSelectedSong.set(null);
 }
 
+// Handle being kicked (for members)
+async function handleKicked() {
+  // Stop any playback
+  const { stopPlayback } = await import('./player.js');
+  await stopPlayback();
+
+  // Restore original settings before leaving
+  await restoreOriginalSettings();
+
+  // Clean up without broadcasting
+  stopSyncPulse();
+
+  latencyIntervals.forEach(interval => clearInterval(interval));
+  latencyIntervals.clear();
+
+  connections.forEach(conn => conn.close());
+  connections.clear();
+
+  if (peer) {
+    peer.destroy();
+    peer = null;
+  }
+
+  // Reset state
+  bandEnabled.set(false);
+  isHost.set(false);
+  roomCode.set(null);
+  connectedPeers.set([]);
+  myTrackId.set(null);
+  mySlot.set(null);
+  availableTracks.set([]);
+  bandStatus.set('disconnected');
+  bandPlayMode.set('split');
+  bandSelectedSong.set(null);
+  myReady.set(false);
+}
+
+// Kick a player from the room (host only)
+export function kickPlayer(peerId) {
+  if (!get(isHost)) return;
+  if (peerId === 'host') return; // Can't kick yourself
+
+  const conn = connections.get(peerId);
+  if (conn && conn.open) {
+    // Send kick message to the player
+    conn.send({ type: 'kicked' });
+
+    // Close their connection
+    setTimeout(() => {
+      conn.close();
+    }, 100);
+  }
+
+  // Remove from connections
+  connections.delete(peerId);
+
+  // Clear latency interval
+  const interval = latencyIntervals.get(peerId);
+  if (interval) {
+    clearInterval(interval);
+    latencyIntervals.delete(peerId);
+  }
+
+  // Remove from connected peers
+  connectedPeers.update(peers =>
+    peers.filter(p => p.id !== peerId)
+  );
+
+  // Notify other players
+  broadcast({ type: 'peer_kicked', peerId });
+}
+
 // Leave room / cleanup
-export function leaveRoom() {
+export async function leaveRoom() {
   const $isHost = get(isHost);
 
   // If host is leaving, notify all members first
   if ($isHost) {
     broadcast({ type: 'room_closed' });
+  } else {
+    // Member leaving - restore original settings
+    await restoreOriginalSettings();
   }
 
   stopSyncPulse();

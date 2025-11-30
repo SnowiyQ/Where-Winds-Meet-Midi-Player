@@ -18,7 +18,7 @@
     addToSavedPlaylist,
     importMidiFile,
   } from "../stores/player.js";
-  import { bandSongSelectMode, selectBandSong } from "../stores/band.js";
+  import { bandSongSelectMode, selectBandSong, cancelBandSongSelect } from "../stores/band.js";
 
   let searchQuery = "";
   let showPlaylistMenu = null;
@@ -36,6 +36,14 @@
   let showImportModal = false;
   let urlInput = "";
   let isDownloading = false;
+
+  // Context menu
+  let contextMenu = null; // { x, y, file }
+  let showRenameModal = false;
+  let renameValue = "";
+  let renamingFile = null;
+  let showDeleteModal = false;
+  let deletingFile = null;
 
   // Scroll mask
   let scrollContainer;
@@ -254,6 +262,79 @@
       }
     });
 
+  // Context menu functions
+  function handleContextMenu(e, file) {
+    e.preventDefault();
+    contextMenu = { x: e.clientX, y: e.clientY, file };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
+  function openRenameModal() {
+    if (contextMenu?.file) {
+      renamingFile = contextMenu.file;
+      // Extract name without .mid extension
+      const name = renamingFile.name;
+      renameValue = name.endsWith('.mid') ? name.slice(0, -4) : name;
+      showRenameModal = true;
+      closeContextMenu();
+    }
+  }
+
+  async function handleRename() {
+    if (!renamingFile || !renameValue.trim()) return;
+
+    try {
+      await invoke('rename_midi_file', {
+        oldPath: renamingFile.path,
+        newName: renameValue.trim()
+      });
+      const { loadMidiFiles } = await import('../stores/player.js');
+      await loadMidiFiles();
+      showRenameModal = false;
+      renamingFile = null;
+      renameValue = "";
+      showToast("File renamed", "success");
+    } catch (err) {
+      showToast(`Failed to rename: ${err}`, "error");
+    }
+  }
+
+  function openDeleteModal() {
+    if (contextMenu?.file) {
+      deletingFile = contextMenu.file;
+      showDeleteModal = true;
+      closeContextMenu();
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deletingFile) return;
+
+    try {
+      await invoke('delete_midi_file', { path: deletingFile.path });
+      const { loadMidiFiles } = await import('../stores/player.js');
+      await loadMidiFiles();
+      showToast("File deleted", "success");
+    } catch (err) {
+      showToast(`Failed to delete: ${err}`, "error");
+    }
+    showDeleteModal = false;
+    deletingFile = null;
+  }
+
+  async function handleOpenFolder() {
+    if (!contextMenu?.file) return;
+    try {
+      await invoke('open_file_location', { path: contextMenu.file.path });
+    } catch (err) {
+      console.error('Failed to open folder:', err);
+    }
+    closeContextMenu();
+  }
+
   const sortOptions = [
     { id: "name-asc", label: "A-Z", icon: "mdi:sort-alphabetical-ascending" },
     { id: "name-desc", label: "Z-A", icon: "mdi:sort-alphabetical-descending" },
@@ -305,7 +386,7 @@
       <p class="text-sm flex-1">Select a song for Band Mode</p>
       <button
         class="text-xs text-white/50 hover:text-white transition-colors"
-        onclick={() => selectBandSong(null)}
+        onclick={cancelBandSongSelect}
       >
         Cancel
       </button>
@@ -325,8 +406,13 @@
         Import
       </button>
     </div>
-    <p class="text-sm text-white/60 mb-4">
-      {filteredFiles.length} of {$midiFiles.length} songs
+    <p class="text-sm text-white/60 mb-4 flex items-center gap-2">
+      <span>{filteredFiles.length} of {$midiFiles.length} songs</span>
+      <span class="text-white/30">•</span>
+      <span class="text-xs text-white/30 flex items-center gap-1">
+        <Icon icon="mdi:mouse" class="w-3 h-3" />
+        Right-click to rename, delete, or open location
+      </span>
     </p>
 
     <!-- Search Input with Sort -->
@@ -407,6 +493,7 @@
           : 'hover:bg-white/5'} {invalid ? 'opacity-60' : ''}"
         in:fly={{ y: 10, duration: 200, delay: Math.min(index * 20, 200) }}
         title={invalid ? 'Invalid MIDI file - cannot parse' : ''}
+        oncontextmenu={(e) => handleContextMenu(e, file)}
       >
         <!-- Number / Play Button / Playing Indicator -->
         <div class="w-8 flex items-center justify-center flex-shrink-0">
@@ -700,6 +787,135 @@
   onclick={() => {
     showPlaylistMenu = null;
     showSortMenu = false;
+    contextMenu = null;
   }}
 />
+
+<!-- Context Menu -->
+{#if contextMenu}
+  <div
+    class="fixed z-50 bg-[#282828] rounded-lg shadow-xl border border-white/10 py-1 min-w-[160px]"
+    style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+    transition:fly={{ y: -5, duration: 150 }}
+  >
+    <button
+      class="w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+      onclick={openRenameModal}
+    >
+      <Icon icon="mdi:pencil" class="w-4 h-4" />
+      Rename
+    </button>
+    <button
+      class="w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+      onclick={handleOpenFolder}
+    >
+      <Icon icon="mdi:folder-open" class="w-4 h-4" />
+      Open Location
+    </button>
+    <div class="border-t border-white/10 my-1"></div>
+    <button
+      class="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+      onclick={openDeleteModal}
+    >
+      <Icon icon="mdi:delete" class="w-4 h-4" />
+      Delete
+    </button>
+  </div>
+{/if}
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteModal && deletingFile}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    transition:fade={{ duration: 150 }}
+  >
+    <button
+      class="absolute inset-0 bg-black/60"
+      onclick={() => { showDeleteModal = false; deletingFile = null; }}
+    ></button>
+
+    <div
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[360px] max-w-[90vw] overflow-hidden"
+      transition:fly={{ y: 20, duration: 200 }}
+    >
+      <div class="p-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-3">
+          <Icon icon="mdi:delete-alert" class="w-6 h-6 text-red-400" />
+        </div>
+        <h3 class="text-lg font-bold mb-2">Delete Song?</h3>
+        <p class="text-sm text-white/60 mb-1">"{deletingFile.name}"</p>
+        <p class="text-xs text-white/40">This cannot be undone.</p>
+      </div>
+
+      <div class="flex gap-2 p-4 pt-0">
+        <button
+          class="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors"
+          onclick={() => { showDeleteModal = false; deletingFile = null; }}
+        >
+          Cancel
+        </button>
+        <button
+          class="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium text-sm transition-colors"
+          onclick={confirmDelete}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Rename Modal -->
+{#if showRenameModal}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    transition:fade={{ duration: 150 }}
+  >
+    <button
+      class="absolute inset-0 bg-black/60"
+      onclick={() => { showRenameModal = false; renamingFile = null; }}
+    ></button>
+
+    <div
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[360px] max-w-[90vw] overflow-hidden"
+      transition:fly={{ y: 20, duration: 200 }}
+    >
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <h3 class="text-lg font-bold">Rename</h3>
+        <button
+          class="p-1 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          onclick={() => { showRenameModal = false; renamingFile = null; }}
+        >
+          <Icon icon="mdi:close" class="w-5 h-5" />
+        </button>
+      </div>
+
+      <div class="p-4">
+        <input
+          type="text"
+          bind:value={renameValue}
+          class="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#1db954] focus:border-transparent transition-all"
+          onkeydown={(e) => e.key === 'Enter' && handleRename()}
+          autofocus
+        />
+        <p class="text-xs text-white/40 mt-2">.mid extension will be added automatically</p>
+      </div>
+
+      <div class="flex gap-2 p-4 pt-0">
+        <button
+          class="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors"
+          onclick={() => { showRenameModal = false; renamingFile = null; }}
+        >
+          Cancel
+        </button>
+        <button
+          class="flex-1 py-2 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-white font-medium text-sm transition-colors"
+          onclick={handleRename}
+        >
+          Rename
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 

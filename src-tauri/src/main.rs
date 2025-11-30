@@ -70,6 +70,38 @@ fn save_album_path(path: Option<&str>) {
     save_config(&config);
 }
 
+fn load_saved_qwertz_mode() {
+    let config = load_config();
+    if let Some(enabled) = config["qwertz_mode"].as_bool() {
+        keyboard::set_qwertz_mode(enabled);
+        println!("Loaded QWERTZ mode: {}", enabled);
+    }
+}
+
+fn save_qwertz_mode(enabled: bool) {
+    let mut config = load_config();
+    config["qwertz_mode"] = serde_json::json!(enabled);
+    save_config(&config);
+}
+
+fn load_custom_window_keywords() {
+    let config = load_config();
+    if let Some(keywords) = config["custom_window_keywords"].as_array() {
+        let kw: Vec<String> = keywords
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+        keyboard::set_custom_window_keywords(kw);
+        println!("Loaded custom window keywords");
+    }
+}
+
+fn save_custom_window_keywords(keywords: &[String]) {
+    let mut config = load_config();
+    config["custom_window_keywords"] = serde_json::json!(keywords);
+    save_config(&config);
+}
+
 fn get_album_folder() -> Result<std::path::PathBuf, String> {
     // Check if custom path is set - return it even if it doesn't exist yet
     // (the caller will create it if needed)
@@ -88,6 +120,7 @@ fn get_album_folder() -> Result<std::path::PathBuf, String> {
 mod midi;
 mod keyboard;
 mod state;
+mod discovery;
 
 use state::{AppState, PlaybackState, VisualizerNote};
 
@@ -98,6 +131,8 @@ struct MidiFile {
     duration: f64,
     bpm: u16,
     note_density: f32,
+    hash: String,
+    size: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -152,6 +187,26 @@ fn get_file_mtime(path: &std::path::Path) -> u64 {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// Compute a simple hash of file content for identification
+fn compute_file_hash(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+
+    // Read first 8KB + file size for quick but reliable hash
+    let mut buffer = [0u8; 8192];
+    let bytes_read = file.read(&mut buffer).ok()?;
+
+    let file_size = file.metadata().ok()?.len();
+
+    // Simple hash combining file content and size
+    let mut hash: u64 = file_size;
+    for byte in &buffer[..bytes_read] {
+        hash = hash.wrapping_mul(31).wrapping_add(*byte as u64);
+    }
+
+    Some(format!("{:016x}", hash))
 }
 
 // Hotkey IDs
@@ -219,12 +274,18 @@ async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
                 (meta.duration, meta.bpm, meta.note_density)
             };
 
+            // Compute file hash and size
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let file_hash = compute_file_hash(&path).unwrap_or_else(|| format!("{:x}", file_size));
+
             files.push(MidiFile {
                 name,
                 path: path_str,
                 duration: metadata.0,
                 bpm: metadata.1,
                 note_density: metadata.2,
+                hash: file_hash,
+                size: file_size,
             });
         }
     }
@@ -445,12 +506,32 @@ async fn get_cloud_mode() -> Result<bool, String> {
 #[tauri::command]
 async fn set_qwertz_mode(enabled: bool) -> Result<(), String> {
     keyboard::set_qwertz_mode(enabled);
+    save_qwertz_mode(enabled);
     Ok(())
 }
 
 #[tauri::command]
 async fn get_qwertz_mode() -> Result<bool, String> {
     Ok(keyboard::get_qwertz_mode())
+}
+
+#[tauri::command]
+async fn set_custom_window_keywords(keywords: Vec<String>) -> Result<(), String> {
+    keyboard::set_custom_window_keywords(keywords.clone());
+    save_custom_window_keywords(&keywords);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_custom_window_keywords() -> Result<Vec<String>, String> {
+    Ok(keyboard::get_custom_window_keywords())
+}
+
+#[tauri::command]
+async fn press_key(key: String) -> Result<(), String> {
+    keyboard::key_down(&key);
+    keyboard::key_up(&key);
+    Ok(())
 }
 
 #[tauri::command]
@@ -702,12 +783,17 @@ async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
             duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
         });
 
+    let file_size = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
+    let file_hash = compute_file_hash(&dest_path).unwrap_or_else(|| format!("{:x}", file_size));
+
     Ok(MidiFile {
         name,
         path: dest_path.to_string_lossy().to_string(),
         duration: meta.duration,
         bpm: meta.bpm,
         note_density: meta.note_density,
+        hash: file_hash,
+        size: file_size,
     })
 }
 
@@ -795,6 +881,180 @@ async fn save_temp_midi(filename: String, data_base64: String) -> Result<String,
     std::fs::write(&temp_path, &data).map_err(|e| format!("Failed to write temp file: {}", e))?;
 
     Ok(temp_path.to_string_lossy().to_string())
+}
+
+// Verify MIDI data is valid (for P2P library safety)
+#[tauri::command]
+async fn verify_midi_data(data_base64: String) -> Result<bool, String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let data = STANDARD.decode(&data_base64)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Check minimum size
+    if data.len() < 14 {
+        return Ok(false);
+    }
+
+    // Check MIDI header "MThd"
+    if &data[0..4] != b"MThd" {
+        return Ok(false);
+    }
+
+    // Check header length (should be 6)
+    let header_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
+    if header_len != 6 {
+        return Ok(false);
+    }
+
+    // Check for at least one track header "MTrk"
+    if data.len() < 22 {
+        return Ok(false);
+    }
+
+    // Find MTrk header (should be at offset 14 after MThd)
+    if &data[14..18] != b"MTrk" {
+        return Ok(false);
+    }
+
+    // Verify file size is reasonable (max 50MB)
+    if data.len() > 50 * 1024 * 1024 {
+        return Ok(false);
+    }
+
+    // Try to parse with midly to ensure it's actually valid
+    match midly::Smf::parse(&data) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+// Save MIDI file to album folder (for P2P library)
+#[tauri::command]
+async fn save_midi_from_base64(filename: String, data_base64: String) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let data = STANDARD.decode(&data_base64)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Verify it's a valid MIDI file
+    if data.len() < 14 || &data[0..4] != b"MThd" {
+        return Err("Not a valid MIDI file".to_string());
+    }
+
+    // Try to parse to ensure it's valid
+    midly::Smf::parse(&data).map_err(|e| format!("Invalid MIDI file: {}", e))?;
+
+    // Get album folder
+    let album_dir = get_album_folder()?;
+
+    // Sanitize filename (remove path separators, etc.)
+    let safe_filename: String = filename
+        .chars()
+        .filter(|c| !['/', '\\', ':', '*', '?', '"', '<', '>', '|'].contains(c))
+        .collect();
+
+    // Ensure .mid extension
+    let final_filename = if safe_filename.to_lowercase().ends_with(".mid") {
+        safe_filename
+    } else {
+        format!("{}.mid", safe_filename)
+    };
+
+    // Check if file already exists, add number if so
+    let mut save_path = album_dir.join(&final_filename);
+    let mut counter = 1;
+    while save_path.exists() {
+        let stem = final_filename.trim_end_matches(".mid");
+        save_path = album_dir.join(format!("{} ({}).mid", stem, counter));
+        counter += 1;
+    }
+
+    std::fs::write(&save_path, &data).map_err(|e| format!("Failed to save file: {}", e))?;
+
+    Ok(save_path.to_string_lossy().to_string())
+}
+
+// Rename a MIDI file
+#[tauri::command]
+async fn rename_midi_file(old_path: String, new_name: String) -> Result<String, String> {
+    let source = std::path::Path::new(&old_path);
+
+    if !source.exists() {
+        return Err("File not found".to_string());
+    }
+
+    // Sanitize the new name
+    let safe_name: String = new_name
+        .chars()
+        .filter(|c| !['/', '\\', ':', '*', '?', '"', '<', '>', '|'].contains(c))
+        .collect();
+
+    if safe_name.is_empty() {
+        return Err("Invalid filename".to_string());
+    }
+
+    // Ensure .mid extension
+    let final_name = if safe_name.to_lowercase().ends_with(".mid") {
+        safe_name
+    } else {
+        format!("{}.mid", safe_name)
+    };
+
+    // Create new path in same directory
+    let parent = source.parent().ok_or("Cannot get parent directory")?;
+    let new_path = parent.join(&final_name);
+
+    // Check if target already exists
+    if new_path.exists() && new_path != source {
+        return Err("A file with that name already exists".to_string());
+    }
+
+    std::fs::rename(&source, &new_path)
+        .map_err(|e| format!("Failed to rename: {}", e))?;
+
+    Ok(new_path.to_string_lossy().to_string())
+}
+
+// Delete a MIDI file
+#[tauri::command]
+async fn delete_midi_file(path: String) -> Result<(), String> {
+    let file_path = std::path::Path::new(&path);
+
+    if !file_path.exists() {
+        return Err("File not found".to_string());
+    }
+
+    // Verify it's in the album folder for safety
+    let album_dir = get_album_folder()?;
+    if !file_path.starts_with(&album_dir) {
+        return Err("Can only delete files in album folder".to_string());
+    }
+
+    std::fs::remove_file(&file_path)
+        .map_err(|e| format!("Failed to delete: {}", e))?;
+
+    Ok(())
+}
+
+// Open file location in explorer
+#[tauri::command]
+async fn open_file_location(path: String) -> Result<(), String> {
+    let file_path = std::path::Path::new(&path);
+
+    if !file_path.exists() {
+        return Err("File not found".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -940,12 +1200,17 @@ async fn download_midi_from_url(url: String) -> Result<MidiFile, String> {
             duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
         });
 
+    let file_size = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+    let file_hash = compute_file_hash(&final_path).unwrap_or_else(|| format!("{:x}", file_size));
+
     Ok(MidiFile {
         name,
         path: final_path.to_string_lossy().to_string(),
         duration: meta.duration,
         bpm: meta.bpm,
         note_density: meta.note_density,
+        hash: file_hash,
+        size: file_size,
     })
 }
 
@@ -1096,6 +1361,31 @@ async fn download_update(download_url: String, file_name: String) -> Result<Stri
     println!("[UPDATE] Downloaded {} bytes", bytes.len());
 
     Ok(download_path.to_string_lossy().to_string())
+}
+
+// ============ Discovery Server ============
+
+#[tauri::command]
+async fn start_discovery_server(port: u16) -> Result<(), String> {
+    tokio::spawn(async move {
+        if let Err(e) = discovery::start_discovery_server(port).await {
+            eprintln!("[DISCOVERY] Server error: {}", e);
+        }
+    });
+
+    // Give server time to start
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    if discovery::is_server_running() {
+        Ok(())
+    } else {
+        Err("Failed to start server".to_string())
+    }
+}
+
+#[tauri::command]
+async fn is_discovery_server_running() -> Result<bool, String> {
+    Ok(discovery::is_server_running())
 }
 
 #[tauri::command]
@@ -1303,8 +1593,10 @@ fn main() {
     // Set high priority for accurate MIDI timing
     set_high_priority();
 
-    // Load saved album path from config
+    // Load saved settings from config
     load_saved_album_path();
+    load_saved_qwertz_mode();
+    load_custom_window_keywords();
 
     let app_state = Arc::new(Mutex::new(AppState::new()));
 
@@ -1339,6 +1631,9 @@ fn main() {
             get_cloud_mode,
             set_qwertz_mode,
             get_qwertz_mode,
+            set_custom_window_keywords,
+            get_custom_window_keywords,
+            press_key,
             is_game_focused,
             is_game_window_found,
             test_all_keys,
@@ -1359,11 +1654,18 @@ fn main() {
             read_midi_base64,
             check_midi_exists,
             save_temp_midi,
+            verify_midi_data,
+            save_midi_from_base64,
+            rename_midi_file,
+            delete_midi_file,
+            open_file_location,
             get_window_position,
             save_window_position,
             check_for_update,
             download_update,
             install_update,
+            start_discovery_server,
+            is_discovery_server_running,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

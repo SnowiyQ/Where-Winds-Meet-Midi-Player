@@ -16,6 +16,8 @@ pub enum NoteMode {
     Chromatic = 4,    // Detailed chromatic mapping
     Raw = 5,          // Raw 1:1 mapping, no transpose
     Python = 6,       // Exact 1:1 copy of Python main.py logic
+    Wide = 7,         // Spread notes evenly across all 3 octaves (uses high/low more)
+    Sharps = 8,       // 36-key mode: shifts notes to use more Shift/Ctrl modifiers
 }
 
 impl From<u8> for NoteMode {
@@ -28,6 +30,8 @@ impl From<u8> for NoteMode {
             4 => NoteMode::Chromatic,
             5 => NoteMode::Raw,
             6 => NoteMode::Python,
+            7 => NoteMode::Wide,
+            8 => NoteMode::Sharps,
             _ => NoteMode::Closest,
         }
     }
@@ -590,6 +594,48 @@ fn note_to_key_raw(note: i32) -> String {
     all_keys[key_idx as usize].to_string()
 }
 
+/// Wide mode - spread notes evenly across all 21 keys
+/// Uses high and low rows more often by mapping the song's note range proportionally
+fn note_to_key_wide(note: i32, transpose: i32) -> String {
+    let target = note + transpose;
+
+    // Map MIDI note range (roughly 36-96, typical piano range) to 21 keys
+    // Piano middle C is MIDI 60, we want that around the middle keys
+    // Low: 36-47 (C2-B2), Mid: 48-71 (C3-B4), High: 72-96 (C5-C7)
+
+    // Use semitone position to determine octave more aggressively
+    // Instead of normalizing into a narrow range, we keep the original octave feel
+    let semitone = ((target % 12) + 12) % 12;
+
+    // Determine octave based on actual note height
+    // This uses the full range: notes below 54 go low, 54-66 go mid, above 66 go high
+    let octave = if target < 54 {
+        0 // Low row - anything below F#3
+    } else if target < 66 {
+        1 // Mid row - F#3 to F#4
+    } else {
+        2 // High row - anything above F#4
+    };
+
+    // Map semitone to key index (0-6)
+    // Use a direct semitone-to-degree mapping
+    let key_idx = match semitone {
+        0 => 0,       // C -> do
+        1 | 2 => 1,   // C#, D -> re
+        3 | 4 => 2,   // D#, E -> mi
+        5 => 3,       // F -> fa
+        6 | 7 => 4,   // F#, G -> so
+        8 | 9 => 5,   // G#, A -> la
+        _ => 6,       // A#, B -> ti
+    };
+
+    match octave {
+        0 => LOW_KEYS[key_idx].to_string(),
+        1 => MID_KEYS[key_idx].to_string(),
+        _ => HIGH_KEYS[key_idx].to_string(),
+    }
+}
+
 /// Python mode - EXACT 1:1 copy of main.py logic
 /// This is the proven working implementation
 fn note_to_key_python(note: i32, transpose: i32) -> String {
@@ -749,6 +795,33 @@ fn note_to_key_36_raw(note: i32) -> String {
     semitone_to_key_36(semitone, octave)
 }
 
+/// 36-key Wide mode - spread notes using wider octave boundaries
+fn note_to_key_36_wide(note: i32, transpose: i32) -> String {
+    let target = note + transpose;
+    let semitone = ((target % 12) + 12) % 12;
+
+    // Use wider octave boundaries (same as 21-key Wide)
+    let octave = if target < 54 {
+        0 // Low row
+    } else if target < 66 {
+        1 // Mid row
+    } else {
+        2 // High row
+    };
+
+    semitone_to_key_36(semitone, octave)
+}
+
+/// 36-key Sharps mode - shifts notes to use more Shift/Ctrl modifiers
+/// Adds +1 semitone so natural notes become sharps (C→C#, D→D#, etc.)
+fn note_to_key_36_sharps(note: i32, transpose: i32) -> String {
+    // Shift by +1 semitone to convert naturals to sharps
+    let target = note + transpose + 1;
+    let semitone = ((target % 12) + 12) % 12;
+    let octave = get_octave_36(target);
+    semitone_to_key_36(semitone, octave)
+}
+
 
 pub fn play_midi(
     midi_data: MidiData,
@@ -898,6 +971,8 @@ pub fn play_midi(
                         NoteMode::Chromatic => note_to_key_36_chromatic(event.note as i32, total_transpose),
                         NoteMode::Raw => note_to_key_36_raw(event.note as i32 + shift_semitones),
                         NoteMode::Python => note_to_key_python(event.note as i32, total_transpose),
+                        NoteMode::Wide => note_to_key_36_wide(event.note as i32, total_transpose),
+                        NoteMode::Sharps => note_to_key_36_sharps(event.note as i32, total_transpose),
                     }
                 }
                 KeyMode::Keys21 => {
@@ -910,6 +985,8 @@ pub fn play_midi(
                         NoteMode::Chromatic => note_to_key_chromatic(event.note as i32, total_transpose),
                         NoteMode::Raw => note_to_key_raw(event.note as i32 + shift_semitones),
                         NoteMode::Python => note_to_key_python(event.note as i32, total_transpose),
+                        NoteMode::Wide => note_to_key_wide(event.note as i32, total_transpose),
+                        NoteMode::Sharps => note_to_key(event.note as i32, total_transpose), // Falls back to Closest in 21-key
                     }
                 }
             };

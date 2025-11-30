@@ -40,6 +40,37 @@
   let qwertzMode = false;
   let albumPath = "";
   let isChangingPath = false;
+  let customWindowKeywords = [];
+  let newKeyword = "";
+  let searchQuery = "";
+
+  // Settings sections for search/navigation
+  const settingsSections = [
+    { id: "window", label: "Window", icon: "mdi:application-outline", keywords: ["window", "detection", "process", "game"] },
+    { id: "notemode", label: "Note Mode", icon: "mdi:music-note", keywords: ["note", "mode", "calculation", "mapping"] },
+    { id: "keystyle", label: "Key Style", icon: "mdi:piano", keywords: ["key", "style", "play", "21", "36"] },
+    { id: "keyboard", label: "Keyboard", icon: "mdi:keyboard", keywords: ["keyboard", "qwertz", "layout", "german"] },
+    { id: "cloud", label: "Cloud", icon: "mdi:cloud", keywords: ["cloud", "gaming", "geforce", "input"] },
+    { id: "playback", label: "Playback", icon: "mdi:play-circle", keywords: ["playback", "modifier", "delay", "speed"] },
+    { id: "storage", label: "Storage", icon: "mdi:folder", keywords: ["storage", "album", "folder", "path"] },
+    { id: "debug", label: "Debug", icon: "mdi:bug", keywords: ["debug", "test", "keys", "spam"] },
+  ];
+
+  function scrollToSection(id) {
+    const element = document.getElementById(`settings-${id}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    searchQuery = "";
+  }
+
+  $: filteredSections = settingsSections
+    .filter(s => s.id !== 'debug' || isDev) // Only show debug in dev mode
+    .filter(s => searchQuery
+      ? s.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.keywords.some(k => k.includes(searchQuery.toLowerCase()))
+      : true
+    );
 
   import { APP_VERSION } from "../version.js";
   let updateAvailable = null;
@@ -74,6 +105,13 @@
       albumPath = await invoke('get_album_path');
     } catch (e) {
       console.error("Failed to get album path:", e);
+    }
+
+    // Load custom window keywords
+    try {
+      customWindowKeywords = await invoke('get_custom_window_keywords');
+    } catch (e) {
+      console.error("Failed to get custom window keywords:", e);
     }
 
     // Check for updates
@@ -159,6 +197,21 @@
     }
   }
 
+  async function addWindowKeyword() {
+    if (!newKeyword.trim()) return;
+    const keyword = newKeyword.trim().toLowerCase();
+    if (!customWindowKeywords.includes(keyword)) {
+      customWindowKeywords = [...customWindowKeywords, keyword];
+      await invoke('set_custom_window_keywords', { keywords: customWindowKeywords });
+    }
+    newKeyword = "";
+  }
+
+  async function removeWindowKeyword(keyword) {
+    customWindowKeywords = customWindowKeywords.filter(k => k !== keyword);
+    await invoke('set_custom_window_keywords', { keywords: customWindowKeywords });
+  }
+
   async function handleSpamTest() {
     if (isSpamming) return;
     isSpamming = true;
@@ -217,6 +270,16 @@
       id: "Closest",
       name: "Closest",
       description: "Find closest available note (original, best for most songs)",
+    },
+    {
+      id: "Wide",
+      name: "Wide",
+      description: "Uses high and low rows more often (spreads notes across all octaves)",
+    },
+    {
+      id: "Sharps",
+      name: "Sharps (36-key)",
+      description: "Uses more Shift/Ctrl modifiers in 36-key mode (shifts notes to sharps)",
     },
     {
       id: "Quantize",
@@ -280,12 +343,36 @@
 
 <div class="h-full flex flex-col">
   <!-- Header -->
-  <div class="mb-6">
-    <div class="flex items-center gap-4">
+  <div class="mb-4">
+    <div class="flex items-center justify-between mb-3">
       <div>
         <h2 class="text-2xl font-bold">Settings</h2>
         <p class="text-sm text-white/60">Configure your playback preferences</p>
       </div>
+    </div>
+
+    <!-- Search & Quick Nav -->
+    <div class="relative mb-3">
+      <Icon icon="mdi:magnify" class="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
+      <input
+        type="text"
+        placeholder="Search settings..."
+        bind:value={searchQuery}
+        class="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[#1db954]"
+      />
+    </div>
+
+    <!-- Quick Navigation -->
+    <div class="flex flex-wrap gap-1.5">
+      {#each filteredSections as section}
+        <button
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/60 hover:text-white transition-colors"
+          onclick={() => scrollToSection(section.id)}
+        >
+          <Icon icon={section.icon} class="w-3 h-3" />
+          {section.label}
+        </button>
+      {/each}
     </div>
   </div>
 
@@ -295,9 +382,74 @@
     onscroll={handleScroll}
     class="flex-1 overflow-y-auto space-y-6 pr-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
   >
+    <!-- Window Detection Section -->
+    <div
+      id="settings-window"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
+      in:fly={{ y: 10, duration: 200 }}
+    >
+      <div class="flex items-center gap-2 mb-4">
+        <Icon icon="mdi:application-outline" class="w-5 h-5 text-[#1db954]" />
+        <h3 class="text-lg font-semibold">Window Detection</h3>
+      </div>
+
+      <p class="text-sm text-white/60 mb-4">
+        Add custom window titles to detect as game window
+      </p>
+
+      <!-- Add new keyword -->
+      <div class="flex gap-2 mb-3">
+        <input
+          type="text"
+          bind:value={newKeyword}
+          placeholder="Enter window name..."
+          class="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#1db954] focus:border-transparent"
+          onkeydown={(e) => e.key === 'Enter' && addWindowKeyword()}
+        />
+        <button
+          class="px-4 py-2 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-white font-medium text-sm transition-colors"
+          onclick={addWindowKeyword}
+        >
+          Add
+        </button>
+      </div>
+
+      <!-- Custom keywords -->
+      {#if customWindowKeywords.length > 0}
+        <div class="mb-3">
+          <p class="text-xs text-white/40 mb-2">Custom:</p>
+          <div class="flex flex-wrap gap-1.5">
+            {#each customWindowKeywords as keyword}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-xs text-white/60">
+                {keyword}
+                <button
+                  class="text-white/40 hover:text-red-400 transition-colors"
+                  onclick={() => removeWindowKeyword(keyword)}
+                  title="Remove"
+                >
+                  <Icon icon="mdi:close" class="w-3 h-3" />
+                </button>
+              </span>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      <!-- Built-in keywords -->
+      <div>
+        <p class="text-xs text-white/40 mb-2">Built-in:</p>
+        <div class="flex flex-wrap gap-1.5">
+          {#each ['Where Winds Meet', 'WWM', 'GeForce Now', '燕云十六声', '연운'] as builtin}
+            <span class="px-2 py-0.5 rounded-full bg-white/10 text-xs text-white/60">{builtin}</span>
+          {/each}
+        </div>
+      </div>
+    </div>
+
     <!-- Note Mode Section -->
     <div
-      class="bg-white/5 rounded-xl p-4"
+      id="settings-notemode"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 50 }}
     >
       <div class="flex items-center gap-2 mb-4">
@@ -337,7 +489,8 @@
 
     <!-- Key Mode Section (Play Style) -->
     <div
-      class="bg-white/5 rounded-xl p-4"
+      id="settings-keystyle"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 75 }}
     >
       <div class="flex items-center gap-2 mb-4">
@@ -430,7 +583,7 @@
 
       <!-- Spam Test (Dev Only) -->
       {#if isDev}
-        <div class="mt-4 pt-4 border-t border-white/10">
+        <div id="settings-debug" class="mt-4 pt-4 border-t border-white/10 scroll-mt-4">
           <div class="flex items-center gap-2 mb-3">
             <Icon icon="mdi:bug" class="w-4 h-4 text-orange-400" />
             <p class="font-medium text-orange-400 text-sm">Spam Test (Dev)</p>
@@ -513,7 +666,8 @@
 
     <!-- Keyboard Layout Info -->
     <div
-      class="bg-white/5 rounded-xl p-4"
+      id="settings-keyboard"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 100 }}
     >
       <div class="flex items-center gap-2 mb-4">
@@ -582,7 +736,8 @@
 
     <!-- Playback Settings Section -->
     <div
-      class="bg-white/5 rounded-xl p-4"
+      id="settings-playback"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 150 }}
     >
       <div class="flex items-center gap-2 mb-4">
@@ -611,7 +766,7 @@
       </div>
 
       <!-- Cloud Gaming Mode Toggle -->
-      <div class="flex items-center justify-between py-3 border-t border-white/10">
+      <div id="settings-cloud" class="flex items-center justify-between py-3 border-t border-white/10 scroll-mt-4">
         <div>
           <p class="font-medium text-white">Cloud Gaming Mode</p>
           <p class="text-sm text-white/60">For GeForce Now, Xbox Cloud, etc.</p>
@@ -640,7 +795,8 @@
 
     <!-- Album Location Section -->
     <div
-      class="bg-white/5 rounded-xl p-4"
+      id="settings-storage"
+      class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 175 }}
     >
       <div class="flex items-center gap-2 mb-4">

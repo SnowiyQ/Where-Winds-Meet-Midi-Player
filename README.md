@@ -36,7 +36,7 @@ If you enjoy this app, consider supporting me on Ko-fi!
 - **Play without focus** - No need to focus the game window, play while doing other things (local mode only)
 - **Cloud gaming support** - Works with GeForce Now, Xbox Cloud Gaming, etc. (requires focus)
 - **Smart music selection** - Automatically adjusts notes to fit the game's instrument
-- **Multiple note modes** - 7 different note calculation algorithms to choose from
+- **Multiple note modes** - 9 different note calculation algorithms to choose from
 - **21/36 key toggle** - Switch between 21-key (natural notes) and 36-key (with sharps/flats) modes
 - **Real-time mode switching** - Change note mode during playback instantly
 - **Track selector** - Choose specific MIDI tracks to play in solo mode
@@ -58,6 +58,11 @@ If you enjoy this app, consider supporting me on Ko-fi!
 - **Large library support** - Optimized metadata caching for 10,000+ MIDI files
 - **Band Mode** - Play together with friends (⚠️ experimental)
 - **QWERTZ keyboard support** - Toggle in Settings for German/Austrian keyboards
+- **Song Library (P2P)** - Share and download songs from other users online
+- **Library management** - Right-click songs to rename, delete, or open file location
+- **Custom window detection** - Add custom process names for game window detection
+- **Settings search** - Quick search and navigation within settings
+- **Remember band name** - Your band mode name is saved across sessions
 
 ## How to Use
 
@@ -97,12 +102,14 @@ These shortcuts work even when the game is focused:
 
 ### Note Calculation Modes
 
-The app offers 7 different algorithms for mapping MIDI notes to the game's keys:
+The app offers 9 different algorithms for mapping MIDI notes to the game's keys:
 
 | Mode | Description |
 |------|-------------|
 | **YueLyn** | Recommended mode - YueLyn's favorite play mode |
 | **Closest** | Finds the closest available note (best for most songs) |
+| **Wide** | Uses high and low rows more often (spreads notes across all octaves) |
+| **Sharps** | 36-key mode: uses more Shift/Ctrl modifiers (shifts notes to sharps) |
 | **Quantize** | Snaps to exact scale notes only |
 | **Transpose Only** | Direct mapping with octave shifting |
 | **Pentatonic** | Maps to 5-note pentatonic scale (do-re-mi-so-la) |
@@ -135,6 +142,49 @@ For cloud gaming services like GeForce Now, Xbox Cloud Gaming, etc., enable **Cl
 - Don't type while playing - your keyboard inputs will interfere!
 - Background playback is NOT possible in this mode
 
+### Song Library (P2P Sharing)
+
+Share and discover MIDI files with other users! The Song Library uses peer-to-peer technology to share songs directly between users.
+
+**How to use:**
+1. Go to the **Share** tab in the Online section
+2. Toggle **Enable Sharing** to connect
+3. Your songs are automatically shared with other users
+4. Browse songs from other users and click to download
+5. Downloaded songs are added to your library
+
+**Features:**
+- See how many songs are available from other users
+- Songs you already own are marked as "Owned"
+- Download progress shown in real-time
+- Auto-connects on app restart if previously enabled
+- Custom discovery server URL (advanced users)
+
+**Privacy notes:**
+- Only file names and hashes are shared, not file contents until downloaded
+- Songs are transferred directly between users (P2P)
+- No account required
+
+### Library Management
+
+Right-click on any song in your library to access management options:
+- **Rename** - Change the song file name
+- **Delete** - Remove the song (with confirmation)
+- **Open Location** - Open the folder containing the file
+
+### Settings & Customization
+
+**Settings Search**: Use the search bar at the top of Settings to quickly find options. Click the quick navigation buttons to jump to specific sections.
+
+**QWERTZ Keyboard**: For German, Austrian, and Swiss keyboards, enable QWERTZ mode in Settings > Keyboard Layout. This swaps Y and Z keys to match your keyboard layout.
+
+**Custom Window Detection**: If the app doesn't detect your game window (e.g., running through a launcher or with a different name), add custom window titles in Settings:
+1. Go to **Settings** > **Window Detection**
+2. Enter the window title or process name
+3. Click **Add**
+
+Built-in detection includes: Where Winds Meet, WWM, GeForce Now, 燕云十六声, 연운
+
 ### Band Mode (Experimental)
 
 > ⚠️ **Warning:** Band mode is experimental and unstable. Only tested on local networks - bugs are expected!
@@ -155,7 +205,12 @@ Play music together with friends! Each player handles different notes or tracks.
 | **Split Notes** | Notes are automatically distributed among players (round-robin) |
 | **By Track** | Each player picks a specific MIDI track to play |
 
-**Sync Delay:** Host can adjust delay (0-5s) to compensate for network latency. If members are ahead, increase the delay.
+**Sync Delay & Calibration:**
+- Host can adjust delay (-2s to +5s) to compensate for network latency
+- Click **Test** to start calibration mode - plays test notes on all members
+- Adjust the slider until all players sound in sync
+- If members play **ahead** of you → decrease the delay
+- If members play **behind** you → increase the delay
 
 **Known limitations:**
 - Only tested on local networks
@@ -166,6 +221,7 @@ Play music together with friends! Each player handles different notes or tracks.
 ### In-App Controls
 
 - **Click any song** to start playing
+- **Right-click any song** - Rename, delete, or open file location
 - **Heart icon** - Add/remove from favorites
 - **Playlist icon** - Add to queue or saved playlists
 - **Drag handle** (top of sidebar) - Move the window around

@@ -76,8 +76,22 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
 
 
 #[cfg(target_os = "windows")]
-const TARGET_WINDOW_KEYWORDS: [&str; 6] =
-    ["where winds meet", "wwm", "wwm.exe", "geforce now", "geforcenow", "nvidia geforce"];
+const TARGET_WINDOW_KEYWORDS: [&str; 8] =
+    ["where winds meet", "wwm", "wwm.exe", "연운", "燕云十六声", "geforce now", "geforcenow", "nvidia geforce"];
+
+// Custom window keywords added by user
+use std::sync::RwLock;
+static CUSTOM_WINDOW_KEYWORDS: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
+pub fn set_custom_window_keywords(keywords: Vec<String>) {
+    if let Ok(mut guard) = CUSTOM_WINDOW_KEYWORDS.write() {
+        *guard = keywords;
+    }
+}
+
+pub fn get_custom_window_keywords() -> Vec<String> {
+    CUSTOM_WINDOW_KEYWORDS.read().map(|g| g.clone()).unwrap_or_default()
+}
 
 #[cfg(target_os = "windows")]
 struct EnumData {
@@ -107,6 +121,7 @@ fn matches_target_window(hwnd: HWND, log: bool) -> bool {
         return false;
     }
 
+    // Check built-in keywords
     let matched_keyword = TARGET_WINDOW_KEYWORDS
         .iter()
         .find(|keyword| title_string.contains(*keyword));
@@ -114,10 +129,22 @@ fn matches_target_window(hwnd: HWND, log: bool) -> bool {
         if log {
             println!("[WINDOW] Found matching window: '{}' (matched: '{}') hwnd={:?}", title_string, keyword, hwnd.0);
         }
-        true
-    } else {
-        false
+        return true;
     }
+
+    // Check custom keywords
+    if let Ok(custom) = CUSTOM_WINDOW_KEYWORDS.read() {
+        for keyword in custom.iter() {
+            if !keyword.is_empty() && title_string.contains(&keyword.to_lowercase()) {
+                if log {
+                    println!("[WINDOW] Found matching window: '{}' (custom: '{}') hwnd={:?}", title_string, keyword, hwnd.0);
+                }
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(target_os = "windows")]

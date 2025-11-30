@@ -131,8 +131,10 @@
   import StatsView from "./lib/components/StatsView.svelte";
   import Visualizer from "./lib/components/Visualizer.svelte";
   import BandMode from "./lib/components/BandMode.svelte";
+  import LibraryShare from "./lib/components/LibraryShare.svelte";
 
   import { bandStatus, connectedPeers, bandSongSelectMode, cancelBandSongSelect, bandSelectedSong } from "./lib/stores/band.js";
+  import { libraryConnected, onlinePeers, initLibrary } from "./lib/stores/library.js";
 
   import {
     loadMidiFiles,
@@ -176,6 +178,8 @@
   const noteModeOptions = [
     { id: "Python", title: "YueLyn", short: "YL", icon: "mdi:heart", desc: "YueLyn's favorite play mode" },
     { id: "Closest", short: "CLS", icon: "mdi:target", desc: "Best fit for most songs" },
+    { id: "Wide", short: "WDE", icon: "mdi:arrow-expand-horizontal", desc: "Uses high/low rows more" },
+    { id: "Sharps", short: "SHP", icon: "mdi:music-accidental-sharp", desc: "36-key: more Shift/Ctrl" },
     { id: "Quantize", short: "QNT", icon: "mdi:grid", desc: "Snap to scale notes" },
     { id: "TransposeOnly", short: "TRP", icon: "mdi:arrow-up-down", desc: "Direct octave shift" },
     { id: "Pentatonic", short: "PEN", icon: "mdi:music", desc: "5-note scale mapping" },
@@ -246,6 +250,7 @@
 
   // Band mode connected peers count (excluding self)
   $: bandPeersCount = $bandStatus === 'connected' ? $connectedPeers.length : 0;
+  $: libraryPeersCount = $libraryConnected ? $onlinePeers : 0;
 
   $: musicNavItems = [
     { id: "library", icon: "mdi:library-music", label: "Library", badge: 0 },
@@ -256,11 +261,12 @@
 
   $: onlineNavItems = [
     { id: "band", icon: "mdi:account-group", label: "Band", badge: bandPeersCount, status: $bandStatus },
+    { id: "share", icon: "mdi:earth", label: "Share", badge: libraryPeersCount, status: $libraryConnected ? 'connected' : 'disconnected' },
   ];
 
   $: appNavItems = [
-    { id: "stats", icon: "mdi:chart-bar", label: "Stats", badge: 0 },
     { id: "settings", icon: "mdi:cog", label: "Settings", badge: 0 },
+    { id: "stats", icon: "mdi:chart-bar", label: "Stats", badge: 0 },
   ];
 
   $: navItems = sidebarTab === "music" ? musicNavItems : sidebarTab === "online" ? onlineNavItems : appNavItems;
@@ -307,6 +313,7 @@
     await loadWindowPosition(); // Restore window position
     await loadMidiFiles();
     initializeListeners();
+    initLibrary(); // Initialize library sharing (auto-connects if was enabled)
     checkForUpdates(); // Check for updates on startup
 
     // Save window position every 5 seconds (only if changed)
@@ -500,13 +507,13 @@
             <div class="flex gap-1 mb-2">
               <button
                 class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium transition-all {sidebarTab === 'music' ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}"
-                onclick={() => sidebarTab = 'music'}
+                onclick={() => { sidebarTab = 'music'; activeView = 'library'; }}
               >
                 <Icon icon="mdi:music" class="w-3.5 h-3.5 inline" />
               </button>
               <button
                 class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium transition-all relative {sidebarTab === 'online' ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}"
-                onclick={() => sidebarTab = 'online'}
+                onclick={() => { sidebarTab = 'online'; activeView = 'band'; }}
               >
                 <Icon icon="mdi:access-point" class="w-3.5 h-3.5 inline" />
                 {#if $bandStatus === 'connected'}
@@ -515,7 +522,7 @@
               </button>
               <button
                 class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium transition-all {sidebarTab === 'app' ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}"
-                onclick={() => sidebarTab = 'app'}
+                onclick={() => { sidebarTab = 'app'; activeView = 'settings'; }}
               >
                 <Icon icon="mdi:cog" class="w-3.5 h-3.5 inline" />
               </button>
@@ -630,6 +637,8 @@
                     <SavedPlaylistsView />
                   {:else if activeView === "band"}
                     <BandMode on:selectsong={handleBandSelectSong} />
+                  {:else if activeView === "share"}
+                    <LibraryShare />
                   {:else if activeView === "stats"}
                     <StatsView />
                   {:else if activeView === "settings"}
