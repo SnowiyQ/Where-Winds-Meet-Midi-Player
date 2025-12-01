@@ -838,6 +838,13 @@ export function toggleReady() {
   const newReady = !get(myReady);
   myReady.set(newReady);
 
+  // Update own entry in connectedPeers immediately for UI feedback
+  if (peer && peer.id) {
+    connectedPeers.update(peers =>
+      peers.map(p => p.id === peer.id ? { ...p, ready: newReady } : p)
+    );
+  }
+
   // Send to host
   const hostConn = connections.get('host');
   if (hostConn && hostConn.open) {

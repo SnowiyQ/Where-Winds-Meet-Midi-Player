@@ -352,38 +352,97 @@
         <!-- Host Delay (Host only) -->
         {#if $isHost}
           <div>
-            <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center justify-between mb-2">
               <p class="text-xs text-white/50">Sync Delay</p>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-white/70 font-mono">{$hostDelay}ms</span>
-                <button
-                  class="px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 {$isCalibrating
-                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                    : 'bg-[#1db954]/20 text-[#1db954] hover:bg-[#1db954]/30'}"
-                  onclick={() => $isCalibrating ? stopCalibration() : startCalibration()}
-                  disabled={$connectedPeers.length < 2}
-                  title={$connectedPeers.length < 2 ? "Need at least 1 member to calibrate" : $isCalibrating ? "Stop calibration" : "Test sync timing"}
-                >
-                  <Icon icon={$isCalibrating ? "mdi:stop" : "mdi:metronome"} class="w-3 h-3" />
-                  {$isCalibrating ? "Stop" : "Test"}
-                </button>
+              <button
+                class="px-2 py-0.5 rounded text-[10px] transition-all flex items-center gap-1 {$isCalibrating
+                  ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                  : 'bg-[#1db954]/20 text-[#1db954] hover:bg-[#1db954]/30'}"
+                onclick={() => $isCalibrating ? stopCalibration() : startCalibration()}
+                disabled={$connectedPeers.length < 2}
+                title={$connectedPeers.length < 2 ? "Need at least 1 member to calibrate" : $isCalibrating ? "Stop calibration test" : "Play test beeps to calibrate sync timing"}
+              >
+                <Icon icon={$isCalibrating ? "mdi:stop" : "mdi:metronome"} class="w-3 h-3" />
+                {$isCalibrating ? "Stop Test" : "Sync Test"}
+              </button>
+            </div>
+            <!-- Input + Slider Row -->
+            <div class="flex items-center gap-3">
+              <div class="relative">
+                <input
+                  type="number"
+                  min="-5000"
+                  max="5000"
+                  step="5"
+                  bind:value={$hostDelay}
+                  class="w-20 px-2 py-1 pr-7 bg-white/5 border border-white/10 rounded-lg text-xs text-white font-mono text-right focus:outline-none focus:ring-1 focus:ring-[#1db954] focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/40">ms</span>
+              </div>
+              <div class="flex-1">
+                <div class="relative h-4 flex items-center">
+                  <!-- Slider track background with gradient -->
+                  <div class="absolute left-0 right-0 h-1.5 rounded-full overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-r from-blue-500/30 via-white/10 to-orange-500/30"></div>
+                    <!-- Active fill -->
+                    <div
+                      class="absolute h-full bg-[#1db954] transition-all rounded-full"
+                      style="width: {(($hostDelay + 5000) / 10000) * 100}%"
+                    ></div>
+                  </div>
+                  <!-- Tick marks -->
+                  <div class="absolute left-0 right-0 flex justify-between items-center pointer-events-none">
+                    <div class="w-px h-2.5 bg-white/20"></div>
+                    <div class="w-px h-2.5 bg-white/30"></div>
+                    <div class="w-px h-2.5 bg-white/20"></div>
+                  </div>
+                  <input
+                    type="range"
+                    min="-5000"
+                    max="5000"
+                    step="5"
+                    bind:value={$hostDelay}
+                    class="absolute inset-0 w-full appearance-none cursor-pointer bg-transparent
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:w-3.5
+                      [&::-webkit-slider-thumb]:h-3.5
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:bg-[#1db954]
+                      [&::-webkit-slider-thumb]:shadow-lg
+                      [&::-webkit-slider-thumb]:shadow-[#1db954]/30
+                      [&::-webkit-slider-thumb]:border-2
+                      [&::-webkit-slider-thumb]:border-white
+                      [&::-webkit-slider-thumb]:cursor-grab
+                      [&::-webkit-slider-thumb]:active:cursor-grabbing
+                      [&::-webkit-slider-thumb]:hover:scale-110
+                      [&::-webkit-slider-thumb]:transition-transform
+                      [&::-moz-range-thumb]:w-3.5
+                      [&::-moz-range-thumb]:h-3.5
+                      [&::-moz-range-thumb]:rounded-full
+                      [&::-moz-range-thumb]:bg-[#1db954]
+                      [&::-moz-range-thumb]:border-2
+                      [&::-moz-range-thumb]:border-white
+                      [&::-moz-range-thumb]:cursor-grab
+                      [&::-moz-range-track]:bg-transparent
+                      [&::-webkit-slider-runnable-track]:bg-transparent"
+                  />
+                </div>
+                <!-- Labels directly under slider -->
+                <div class="flex justify-between text-[9px] text-white/30 mt-0.5">
+                  <span>-5s</span>
+                  <span>0</span>
+                  <span>+5s</span>
+                </div>
               </div>
             </div>
-            <input
-              type="range"
-              min="-2000"
-              max="5000"
-              step="50"
-              bind:value={$hostDelay}
-              class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#1db954]"
-            />
             {#if $isCalibrating}
-              <p class="text-[10px] text-yellow-400 mt-1">
-                Adjust slider until all players sound in sync
+              <p class="text-[10px] text-yellow-400 mt-1.5 flex items-center gap-1">
+                <Icon icon="mdi:pulse" class="w-3 h-3 animate-pulse" />
+                Adjust until beeps sync across all devices
               </p>
             {:else}
-              <p class="text-[10px] text-white/40 mt-1">
-                Offset host timing (-2s to +5s)
+              <p class="text-[10px] text-white/40 mt-1.5">
+                + delay = host plays later · − delay = host plays earlier
               </p>
             {/if}
           </div>
@@ -394,22 +453,20 @@
           <div>
             <p class="text-xs text-white/50 mb-1">Song</p>
             {#if $bandSelectedSong}
-              <div class="flex items-center gap-2 p-1.5 rounded-lg bg-white/5">
+              <button
+                class="w-full flex items-center gap-2 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-left {$isPlaying ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"
+                onclick={() => !$isPlaying && handleSelectSong()}
+                disabled={$isPlaying}
+                title={$isPlaying ? "Stop playback to change song" : "Click to change song"}
+              >
                 <div class="w-7 h-7 rounded bg-white/10 flex items-center justify-center shrink-0">
                   <Icon icon="mdi:music-note" class="w-3.5 h-3.5 text-[#1db954]" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <p class="text-xs font-medium truncate">{$bandSelectedSong.name}</p>
                 </div>
-                <button
-                  class="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors {$isPlaying ? 'opacity-50 cursor-not-allowed' : ''}"
-                  onclick={() => !$isPlaying && handleSelectSong()}
-                  disabled={$isPlaying}
-                  title={$isPlaying ? "Stop playback to change song" : "Change"}
-                >
-                  <Icon icon="mdi:swap-horizontal" class="w-3.5 h-3.5" />
-                </button>
-              </div>
+                <Icon icon="mdi:chevron-right" class="w-4 h-4 text-white/30" />
+              </button>
             {:else}
               <button
                 class="w-full p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-dashed border-white/20 text-white/50 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-xs {$isPlaying ? 'opacity-50 cursor-not-allowed' : ''}"
@@ -541,7 +598,7 @@
                             : 'bg-white/5 text-white/50 hover:bg-white/10'}"
                           onclick={() => assignTrackToPlayer(peer.id, '')}
                         >
-                          None
+                          All
                         </button>
                         {#each $availableTracks as track}
                           <button
@@ -556,9 +613,9 @@
                       {:else if peerTrack}
                         <span class="px-2 py-1 rounded text-[10px] bg-[#1db954] text-white font-medium">{peerTrack.name}</span>
                       {:else if $isPlaying && $isHost}
-                        <span class="px-2 py-1 rounded text-[10px] bg-white/10 text-white/50">{peer.trackId !== null && peer.trackId !== undefined ? $availableTracks.find(t => t.id === peer.trackId)?.name || 'Track ' + peer.trackId : 'No track'}</span>
+                        <span class="px-2 py-1 rounded text-[10px] bg-white/10 text-white/50">{peer.trackId !== null && peer.trackId !== undefined ? $availableTracks.find(t => t.id === peer.trackId)?.name || 'Track ' + peer.trackId : 'All'}</span>
                       {:else}
-                        <span class="px-2 py-1 rounded text-[10px] bg-white/10 text-white/50">No track</span>
+                        <span class="px-2 py-1 rounded text-[10px] bg-white/10 text-white/50">All</span>
                       {/if}
                     </div>
                   {/if}
