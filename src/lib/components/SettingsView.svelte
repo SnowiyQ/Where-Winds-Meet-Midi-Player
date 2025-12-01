@@ -37,8 +37,52 @@
   let spamDelay = 20;
   let chordSize = 3;
   let cloudMode = false;
-  let qwertzMode = false;
   let albumPath = "";
+
+  // Note key bindings (customizable keyboard layout)
+  let noteKeys = {
+    low: ["z", "x", "c", "v", "b", "n", "m"],
+    mid: ["a", "s", "d", "f", "g", "h", "j"],
+    high: ["q", "w", "e", "r", "t", "y", "u"]
+  };
+  let recordingNoteKey = null; // { octave: "low"|"mid"|"high", index: 0-6 }
+
+  // Keyboard layout presets
+  const KEY_PRESETS = {
+    qwerty: {
+      name: "QWERTY",
+      desc: "US/International layout",
+      low: ["z", "x", "c", "v", "b", "n", "m"],
+      mid: ["a", "s", "d", "f", "g", "h", "j"],
+      high: ["q", "w", "e", "r", "t", "y", "u"]
+    },
+    qwertz: {
+      name: "QWERTZ",
+      desc: "German/Austrian layout",
+      low: ["y", "x", "c", "v", "b", "n", "m"],
+      mid: ["a", "s", "d", "f", "g", "h", "j"],
+      high: ["q", "w", "e", "r", "t", "z", "u"]
+    },
+    azerty: {
+      name: "AZERTY",
+      desc: "French layout",
+      low: ["w", "x", "c", "v", "b", "n", "m"],
+      mid: ["q", "s", "d", "f", "g", "h", "j"],
+      high: ["a", "z", "e", "r", "t", "y", "u"]
+    }
+  };
+  let showPresetModal = false;
+  let pendingPreset = null;
+
+  // Reactive: which preset is currently active (inline check for proper reactivity)
+  $: activePreset = Object.keys(KEY_PRESETS).find(key => {
+    const preset = KEY_PRESETS[key];
+    return (
+      noteKeys.low.join(',') === preset.low.join(',') &&
+      noteKeys.mid.join(',') === preset.mid.join(',') &&
+      noteKeys.high.join(',') === preset.high.join(',')
+    );
+  }) || null;
   let isChangingPath = false;
   let customWindowKeywords = [];
   let newKeyword = "";
@@ -68,11 +112,11 @@
 
   // Settings sections for search/navigation
   const settingsSections = [
-    { id: "keybindings", label: "Keybindings", icon: "mdi:keyboard-settings", keywords: ["keybindings", "shortcuts", "hotkeys", "keys", "bind"] },
+    { id: "keybindings", label: "Shortcuts", icon: "mdi:keyboard-settings", keywords: ["keybindings", "shortcuts", "hotkeys", "keys", "bind"] },
     { id: "window", label: "Window", icon: "mdi:application-outline", keywords: ["window", "detection", "process", "game"] },
     { id: "notemode", label: "Note Mode", icon: "mdi:music-note", keywords: ["note", "mode", "calculation", "mapping"] },
     { id: "keystyle", label: "Key Style", icon: "mdi:piano", keywords: ["key", "style", "play", "21", "36"] },
-    { id: "keyboard", label: "Keyboard", icon: "mdi:keyboard", keywords: ["keyboard", "qwertz", "layout", "german"] },
+    { id: "keyboard", label: "Note Keys", icon: "mdi:piano", keywords: ["keyboard", "qwertz", "azerty", "layout", "keys", "notes"] },
     { id: "cloud", label: "Cloud", icon: "mdi:cloud", keywords: ["cloud", "gaming", "geforce", "input"] },
     { id: "storage", label: "Storage", icon: "mdi:folder", keywords: ["storage", "album", "folder", "path"] },
     { id: "debug", label: "Debug", icon: "mdi:bug", keywords: ["debug", "test", "keys", "spam"] },
@@ -111,15 +155,26 @@
   onMount(async () => {
     // Listen for key capture events from backend (when app not focused)
     unlistenKeyCapture = await listen('key-captured', (event) => {
-      if (!recordingKey) return;
       const keyName = event.payload;
 
+      // Handle escape for both recording modes
       if (keyName === 'Escape') {
-        stopRecording();
+        if (recordingKey) stopRecording();
+        if (recordingNoteKey) stopRecordingNoteKey();
         return;
       }
 
-      applyKeyBinding(keyName);
+      // Handle shortcut keybindings
+      if (recordingKey) {
+        applyKeyBinding(keyName);
+        return;
+      }
+
+      // Handle note key bindings
+      if (recordingNoteKey) {
+        applyNoteKeyBinding(keyName);
+        return;
+      }
     });
 
     // Check initial scroll state
@@ -137,11 +192,14 @@
       console.error("Failed to get cloud mode:", e);
     }
 
-    // Load QWERTZ mode
+    // Load note key bindings
     try {
-      qwertzMode = await invoke('get_qwertz_mode');
+      const keys = await invoke('get_note_keys');
+      if (keys.low?.length === 7 && keys.mid?.length === 7 && keys.high?.length === 7) {
+        noteKeys = keys;
+      }
     } catch (e) {
-      console.error("Failed to get qwertz mode:", e);
+      console.error("Failed to get note keys:", e);
     }
 
     // Load album path
@@ -269,14 +327,78 @@
     }
   }
 
-  async function toggleQwertzMode() {
-    qwertzMode = !qwertzMode;
+  // Note key binding functions
+  async function saveNoteKeys() {
     try {
-      await invoke('set_qwertz_mode', { enabled: qwertzMode });
+      await invoke('set_note_keys', noteKeys);
     } catch (e) {
-      console.error("Failed to set qwertz mode:", e);
-      qwertzMode = !qwertzMode;
+      console.error("Failed to save note keys:", e);
     }
+  }
+
+  async function resetNoteKeys() {
+    try {
+      const keys = await invoke('reset_note_keys');
+      noteKeys = keys;
+    } catch (e) {
+      console.error("Failed to reset note keys:", e);
+    }
+  }
+
+  // Preset handling
+  function selectPreset(presetKey) {
+    pendingPreset = presetKey;
+    showPresetModal = true;
+  }
+
+  async function applyPreset() {
+    if (!pendingPreset || !KEY_PRESETS[pendingPreset]) return;
+
+    const preset = KEY_PRESETS[pendingPreset];
+    noteKeys = {
+      low: [...preset.low],
+      mid: [...preset.mid],
+      high: [...preset.high]
+    };
+    await saveNoteKeys();
+    showPresetModal = false;
+    pendingPreset = null;
+  }
+
+  function cancelPreset() {
+    showPresetModal = false;
+    pendingPreset = null;
+  }
+
+  async function startRecordingNoteKey(octave, index) {
+    await invoke('cmd_set_keybindings_enabled', { enabled: false });
+    recordingNoteKey = { octave, index };
+    await invoke('cmd_unfocus_window');
+  }
+
+  async function stopRecordingNoteKey() {
+    recordingNoteKey = null;
+    await invoke('cmd_set_keybindings_enabled', { enabled: true });
+    const win = getCurrentWindow();
+    await win.setFocus(true).catch(() => {});
+  }
+
+  function applyNoteKeyBinding(keyName) {
+    if (!recordingNoteKey) return;
+
+    // Only allow single letter keys (a-z)
+    const key = keyName.toLowerCase();
+    if (!/^[a-z]$/.test(key)) {
+      stopRecordingNoteKey();
+      return;
+    }
+
+    const { octave, index } = recordingNoteKey;
+    noteKeys[octave][index] = key;
+    noteKeys = { ...noteKeys }; // trigger reactivity
+
+    stopRecordingNoteKey();
+    saveNoteKeys();
   }
 
   async function changeAlbumPath() {
@@ -466,7 +588,7 @@
     onscroll={handleScroll}
     class="flex-1 overflow-y-auto space-y-6 pr-2 {showTopMask && showBottomMask ? 'scroll-mask-both' : showTopMask ? 'scroll-mask-top' : showBottomMask ? 'scroll-mask-bottom' : ''}"
   >
-    <!-- Keybindings Section -->
+    <!-- Shortcuts Section -->
     <div
       id="settings-keybindings"
       class="bg-white/5 rounded-xl p-4 scroll-mt-4"
@@ -475,7 +597,7 @@
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
           <Icon icon="mdi:keyboard-settings" class="w-5 h-5 text-[#1db954]" />
-          <h3 class="text-lg font-semibold">Keybindings</h3>
+          <h3 class="text-lg font-semibold">Shortcuts</h3>
         </div>
         <button
           class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs font-medium transition-colors"
@@ -771,71 +893,119 @@
       {/if}
     </div>
 
-    <!-- Keyboard Layout Info -->
+    <!-- Keyboard Layout / Note Keys -->
     <div
       id="settings-keyboard"
       class="bg-white/5 rounded-xl p-4 scroll-mt-4"
       in:fly={{ y: 10, duration: 200, delay: 100 }}
     >
-      <div class="flex items-center gap-2 mb-4">
-        <Icon icon="mdi:keyboard" class="w-5 h-5 text-[#1db954]" />
-        <h3 class="text-lg font-semibold">Keyboard Layout</h3>
-      </div>
-
-      <!-- QWERTZ Toggle -->
-      <div class="flex items-center justify-between py-3 mb-4">
-        <div>
-          <p class="font-medium text-white">QWERTZ Keyboard</p>
-          <p class="text-sm text-white/60">For German/Austrian keyboards (swaps Y↔Z)</p>
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <Icon icon="mdi:keyboard" class="w-5 h-5 text-[#1db954]" />
+          <h3 class="text-lg font-semibold">Note Keys</h3>
         </div>
         <button
-          class="relative w-12 h-6 rounded-full transition-colors duration-200 {qwertzMode
-            ? 'bg-[#1db954]'
-            : 'bg-white/20'}"
-          onclick={toggleQwertzMode}
+          class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white/60 hover:text-white text-xs font-medium transition-colors"
+          onclick={resetNoteKeys}
         >
-          <div
-            class="absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 {qwertzMode
-              ? 'translate-x-7'
-              : 'translate-x-1'}"
-          ></div>
+          Reset to Default
         </button>
       </div>
 
-      <div class="space-y-3 text-sm">
-        <!-- 21-Key Layout -->
+      <p class="text-sm text-white/60 mb-3">
+        Customize which keys play each note. Click a key to change it, or select a preset layout.
+      </p>
+
+      {#if !activePreset}
+        <div class="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+          <Icon icon="mdi:tune" class="w-4 h-4 text-purple-400" />
+          <span class="text-xs text-purple-300">Custom layout</span>
+        </div>
+      {/if}
+
+      <!-- Preset Buttons -->
+      <div class="flex gap-2 mb-4">
+        {#each Object.entries(KEY_PRESETS) as [key, preset]}
+          <button
+            class="flex-1 py-2 px-3 rounded-lg transition-colors text-center relative {activePreset === key
+              ? 'bg-[#1db954]/10 border-2 border-[#1db954]'
+              : 'bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20'}"
+            onclick={() => selectPreset(key)}
+          >
+            {#if activePreset === key}
+              <div class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#1db954] flex items-center justify-center">
+                <Icon icon="mdi:check" class="w-3 h-3 text-white" />
+              </div>
+            {/if}
+            <p class="font-medium text-sm {activePreset === key ? 'text-[#1db954]' : 'text-white'}">{preset.name}</p>
+            <p class="text-xs {activePreset === key ? 'text-[#1db954]/60' : 'text-white/40'}">{preset.desc}</p>
+          </button>
+        {/each}
+      </div>
+
+      <!-- Note Key Grid -->
+      <div class="space-y-3">
+        <!-- High Octave -->
         <div class="bg-white/5 rounded-lg p-3">
-          <p class="font-semibold text-white mb-2">21 Keys (Natural Notes)</p>
-          <div class="grid grid-cols-3 gap-2 text-xs">
-            <div>
-              <span class="text-white/40">High:</span>
-              <span class="font-mono">Q W E R T Y U</span>
-            </div>
-            <div>
-              <span class="text-white/40">Mid:</span>
-              <span class="font-mono">A S D F G H J</span>
-            </div>
-            <div>
-              <span class="text-white/40">Low:</span>
-              <span class="font-mono">Z X C V B N M</span>
-            </div>
+          <p class="text-xs text-white/40 mb-2">High Octave (C5-B5)</p>
+          <div class="flex gap-1.5">
+            {#each noteKeys.high as key, i}
+              <button
+                class="flex-1 py-2 rounded-md font-mono text-sm text-center transition-all uppercase {recordingNoteKey?.octave === 'high' && recordingNoteKey?.index === i ? 'bg-[#1db954] text-black animate-pulse' : 'bg-white/10 hover:bg-white/20 text-white'}"
+                onclick={() => startRecordingNoteKey('high', i)}
+              >
+                {recordingNoteKey?.octave === 'high' && recordingNoteKey?.index === i ? '...' : key}
+              </button>
+            {/each}
           </div>
         </div>
 
-        <!-- 36-Key Layout -->
+        <!-- Mid Octave -->
         <div class="bg-white/5 rounded-lg p-3">
-          <p class="font-semibold text-white mb-2">+15 Keys (Sharps/Flats)</p>
-          <div class="space-y-2 text-xs">
-            <div>
-              <span class="text-orange-400">Shift+</span>
-              <span class="text-white/60">C# F# G#:</span>
-              <span class="font-mono text-white/80">Shift+Q/R/T, A/F/G, Z/V/B</span>
-            </div>
-            <div>
-              <span class="text-blue-400">Ctrl+</span>
-              <span class="text-white/60">Eb Bb:</span>
-              <span class="font-mono text-white/80">Ctrl+E/U, D/J, C/M</span>
-            </div>
+          <p class="text-xs text-white/40 mb-2">Mid Octave (C4-B4)</p>
+          <div class="flex gap-1.5">
+            {#each noteKeys.mid as key, i}
+              <button
+                class="flex-1 py-2 rounded-md font-mono text-sm text-center transition-all uppercase {recordingNoteKey?.octave === 'mid' && recordingNoteKey?.index === i ? 'bg-[#1db954] text-black animate-pulse' : 'bg-white/10 hover:bg-white/20 text-white'}"
+                onclick={() => startRecordingNoteKey('mid', i)}
+              >
+                {recordingNoteKey?.octave === 'mid' && recordingNoteKey?.index === i ? '...' : key}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Low Octave -->
+        <div class="bg-white/5 rounded-lg p-3">
+          <p class="text-xs text-white/40 mb-2">Low Octave (C3-B3)</p>
+          <div class="flex gap-1.5">
+            {#each noteKeys.low as key, i}
+              <button
+                class="flex-1 py-2 rounded-md font-mono text-sm text-center transition-all uppercase {recordingNoteKey?.octave === 'low' && recordingNoteKey?.index === i ? 'bg-[#1db954] text-black animate-pulse' : 'bg-white/10 hover:bg-white/20 text-white'}"
+                onclick={() => startRecordingNoteKey('low', i)}
+              >
+                {recordingNoteKey?.octave === 'low' && recordingNoteKey?.index === i ? '...' : key}
+              </button>
+            {/each}
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-white/40 mt-3">
+        Press Escape to cancel. Only A-Z keys are allowed for notes.
+      </p>
+
+      <!-- 36-Key Info -->
+      <div class="mt-4 pt-4 border-t border-white/10">
+        <p class="text-xs text-white/40 mb-2">36-Key Mode (sharps/flats use modifiers):</p>
+        <div class="space-y-1 text-xs">
+          <div>
+            <span class="text-orange-400">Shift+</span>
+            <span class="text-white/60">for C# F# G#</span>
+          </div>
+          <div>
+            <span class="text-blue-400">Ctrl+</span>
+            <span class="text-white/60">for Eb Bb</span>
           </div>
         </div>
       </div>
@@ -986,3 +1156,57 @@
     </div>
   </div>
 </div>
+
+<!-- Preset Confirmation Modal -->
+{#if showPresetModal && pendingPreset && KEY_PRESETS[pendingPreset]}
+  <div
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center"
+    onclick={cancelPreset}
+    in:fade={{ duration: 150 }}
+  >
+    <div
+      class="bg-[#282828] rounded-xl p-6 max-w-md mx-4 shadow-2xl border border-white/10"
+      onclick={(e) => e.stopPropagation()}
+      in:fly={{ y: 20, duration: 200 }}
+    >
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+          <Icon icon="mdi:alert" class="w-5 h-5 text-orange-400" />
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold text-white">Apply {KEY_PRESETS[pendingPreset].name} Layout?</h3>
+          <p class="text-sm text-white/60">{KEY_PRESETS[pendingPreset].desc}</p>
+        </div>
+      </div>
+
+      <div class="bg-white/5 rounded-lg p-3 mb-4">
+        <p class="text-xs text-white/40 mb-2">This will set your keys to:</p>
+        <div class="space-y-1 text-sm font-mono">
+          <p><span class="text-white/40">High:</span> <span class="text-white uppercase">{KEY_PRESETS[pendingPreset].high.join(' ')}</span></p>
+          <p><span class="text-white/40">Mid:</span> <span class="text-white uppercase">{KEY_PRESETS[pendingPreset].mid.join(' ')}</span></p>
+          <p><span class="text-white/40">Low:</span> <span class="text-white uppercase">{KEY_PRESETS[pendingPreset].low.join(' ')}</span></p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 mb-4">
+        <Icon icon="mdi:information" class="w-4 h-4 text-orange-400 flex-shrink-0" />
+        <p class="text-xs text-orange-300">This will override your current key bindings and cannot be undone.</p>
+      </div>
+
+      <div class="flex gap-3">
+        <button
+          class="flex-1 py-2.5 px-4 rounded-lg bg-white/10 hover:bg-white/15 text-white font-medium transition-colors"
+          onclick={cancelPreset}
+        >
+          Cancel
+        </button>
+        <button
+          class="flex-1 py-2.5 px-4 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-white font-medium transition-colors"
+          onclick={applyPreset}
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

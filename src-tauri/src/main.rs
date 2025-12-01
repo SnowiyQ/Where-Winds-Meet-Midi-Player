@@ -220,17 +220,49 @@ fn save_album_path(path: Option<&str>) {
     save_config(&config);
 }
 
-fn load_saved_qwertz_mode() {
+fn load_saved_note_keys() {
     let config = load_config();
-    if let Some(enabled) = config["qwertz_mode"].as_bool() {
-        keyboard::set_qwertz_mode(enabled);
-        app_log!("Loaded QWERTZ mode: {}", enabled);
+    if let Some(keys) = config.get("note_keys") {
+        let low: Vec<String> = keys["low"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let mid: Vec<String> = keys["mid"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let high: Vec<String> = keys["high"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        if !low.is_empty() && !mid.is_empty() && !high.is_empty() {
+            keyboard::set_note_key_bindings(low.clone(), mid.clone(), high.clone());
+            app_log!("Loaded note key bindings");
+        }
+    }
+    // Migration: if old qwertz_mode exists, migrate to new format
+    else if let Some(enabled) = config["qwertz_mode"].as_bool() {
+        if enabled {
+            // QWERTZ: swap Y and Z
+            let low = vec!["y".to_string(), "x".to_string(), "c".to_string(), "v".to_string(), "b".to_string(), "n".to_string(), "m".to_string()];
+            let mid = vec!["a".to_string(), "s".to_string(), "d".to_string(), "f".to_string(), "g".to_string(), "h".to_string(), "j".to_string()];
+            let high = vec!["q".to_string(), "w".to_string(), "e".to_string(), "r".to_string(), "t".to_string(), "z".to_string(), "u".to_string()];
+            keyboard::set_note_key_bindings(low.clone(), mid.clone(), high.clone());
+            save_note_keys(&low, &mid, &high);
+            app_log!("Migrated from qwertz_mode to note_keys");
+        }
     }
 }
 
-fn save_qwertz_mode(enabled: bool) {
+fn save_note_keys(low: &[String], mid: &[String], high: &[String]) {
     let mut config = load_config();
-    config["qwertz_mode"] = serde_json::json!(enabled);
+    config["note_keys"] = serde_json::json!({
+        "low": low,
+        "mid": mid,
+        "high": high
+    });
+    // Remove old format if present
+    if config.get("qwertz_mode").is_some() {
+        config.as_object_mut().unwrap().remove("qwertz_mode");
+    }
     save_config(&config);
 }
 
@@ -660,15 +692,38 @@ async fn get_cloud_mode() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn set_qwertz_mode(enabled: bool) -> Result<(), String> {
-    keyboard::set_qwertz_mode(enabled);
-    save_qwertz_mode(enabled);
+async fn set_note_keys(low: Vec<String>, mid: Vec<String>, high: Vec<String>) -> Result<(), String> {
+    keyboard::set_note_key_bindings(low.clone(), mid.clone(), high.clone());
+    save_note_keys(&low, &mid, &high);
     Ok(())
 }
 
 #[tauri::command]
-async fn get_qwertz_mode() -> Result<bool, String> {
-    Ok(keyboard::get_qwertz_mode())
+async fn get_note_keys() -> Result<serde_json::Value, String> {
+    let (low, mid, high) = keyboard::get_note_key_bindings();
+    Ok(serde_json::json!({
+        "low": low,
+        "mid": mid,
+        "high": high
+    }))
+}
+
+#[tauri::command]
+async fn reset_note_keys() -> Result<serde_json::Value, String> {
+    keyboard::reset_note_key_bindings();
+    // Clear from config
+    let mut config = load_config();
+    if config.get("note_keys").is_some() {
+        config.as_object_mut().unwrap().remove("note_keys");
+        save_config(&config);
+    }
+    // Return defaults
+    let (low, mid, high) = keyboard::get_note_key_bindings();
+    Ok(serde_json::json!({
+        "low": low,
+        "mid": mid,
+        "high": high
+    }))
 }
 
 #[tauri::command]
@@ -2250,7 +2305,7 @@ fn main() {
 
     // Load saved settings from config
     load_saved_album_path();
-    load_saved_qwertz_mode();
+    load_saved_note_keys();
     load_custom_window_keywords();
     load_saved_keybindings();
 
@@ -2285,8 +2340,9 @@ fn main() {
             get_modifier_delay,
             set_cloud_mode,
             get_cloud_mode,
-            set_qwertz_mode,
-            get_qwertz_mode,
+            set_note_keys,
+            get_note_keys,
+            reset_note_keys,
             set_custom_window_keywords,
             get_custom_window_keywords,
             cmd_get_keybindings,

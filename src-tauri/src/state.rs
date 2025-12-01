@@ -203,6 +203,8 @@ impl AppState {
     }
 
     pub fn seek(&mut self, position: f64, window: Window) -> Result<(), String> {
+        let was_paused = self.is_paused.load(Ordering::SeqCst);
+
         if self.is_playing.load(Ordering::SeqCst) {
             // Store the seek position
             *self.seek_offset.lock().unwrap() = position;
@@ -210,6 +212,11 @@ impl AppState {
             // Restart playback from the new position
             self.stop_playback();
             self.start_playback(window)?;
+
+            // Restore paused state if it was paused before seeking
+            if was_paused {
+                self.is_paused.store(true, Ordering::SeqCst);
+            }
         } else {
             // Just set the position if not playing
             *self.current_position.lock().unwrap() = position;

@@ -57,7 +57,7 @@ If you enjoy this app, consider supporting me on Ko-fi!
 - **Remember window position** - App remembers where you placed it
 - **Large library support** - Optimized metadata caching for 10,000+ MIDI files
 - **Band Mode** - Play together with friends (⚠️ experimental)
-- **QWERTZ keyboard support** - Toggle in Settings for German/Austrian keyboards
+- **Custom keyboard layouts** - Supports QWERTY, QWERTZ, AZERTY presets or fully custom key bindings
 - **Song Library (P2P)** - Share and download songs from other users online
 - **Library management** - Right-click songs to rename, delete, or open file location
 - **Custom window detection** - Add custom process names for game window detection
@@ -176,7 +176,7 @@ Right-click on any song in your library to access management options:
 
 **Settings Search**: Use the search bar at the top of Settings to quickly find options. Click the quick navigation buttons to jump to specific sections.
 
-**QWERTZ Keyboard**: For German, Austrian, and Swiss keyboards, enable QWERTZ mode in Settings > Keyboard Layout. This swaps Y and Z keys to match your keyboard layout.
+**Custom Note Keys**: Customize which keys play each note in Settings > Note Keys. Choose from preset layouts (QWERTY, QWERTZ, AZERTY) or create your own custom mapping. Click any key to rebind it - perfect for any keyboard layout!
 
 **Custom Window Detection**: If the app doesn't detect your game window (e.g., running through a launcher or with a different name), add custom window titles in Settings:
 1. Go to **Settings** > **Window Detection**

@@ -11,8 +11,19 @@ static MODIFIER_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 // Input mode: false = PostMessage (default), true = SendInput (for cloud gaming)
 static USE_SEND_INPUT: AtomicBool = AtomicBool::new(false);
 
-// Keyboard layout: false = QWERTY (default), true = QWERTZ (Y/Z swapped)
-static USE_QWERTZ: AtomicBool = AtomicBool::new(false);
+use std::sync::RwLock as StdRwLock;
+use std::collections::HashMap;
+
+// Custom key bindings for each note position
+// Maps logical key (e.g., "low_0") to physical key (e.g., "z")
+lazy_static::lazy_static! {
+    static ref CUSTOM_KEY_BINDINGS: StdRwLock<HashMap<String, String>> = StdRwLock::new(HashMap::new());
+}
+
+// Default key bindings (QWERTY layout)
+pub const DEFAULT_LOW_KEYS: [&str; 7] = ["z", "x", "c", "v", "b", "n", "m"];
+pub const DEFAULT_MID_KEYS: [&str; 7] = ["a", "s", "d", "f", "g", "h", "j"];
+pub const DEFAULT_HIGH_KEYS: [&str; 7] = ["q", "w", "e", "r", "t", "y", "u"];
 
 /// Set input mode: true = SendInput (cloud gaming), false = PostMessage (local)
 pub fn set_send_input_mode(enabled: bool) {
@@ -25,15 +36,93 @@ pub fn get_send_input_mode() -> bool {
     USE_SEND_INPUT.load(Ordering::SeqCst)
 }
 
-/// Set keyboard layout: true = QWERTZ, false = QWERTY
-pub fn set_qwertz_mode(enabled: bool) {
-    USE_QWERTZ.store(enabled, Ordering::SeqCst);
-    println!("[KEYBOARD] Layout: {}", if enabled { "QWERTZ" } else { "QWERTY" });
+/// Set custom key bindings for notes
+/// keys format: { "low": ["z","x",...], "mid": ["a","s",...], "high": ["q","w",...] }
+pub fn set_note_key_bindings(low: Vec<String>, mid: Vec<String>, high: Vec<String>) {
+    if let Ok(mut bindings) = CUSTOM_KEY_BINDINGS.write() {
+        bindings.clear();
+        for (i, key) in low.iter().enumerate() {
+            if i < 7 {
+                bindings.insert(format!("low_{}", i), key.to_lowercase());
+            }
+        }
+        for (i, key) in mid.iter().enumerate() {
+            if i < 7 {
+                bindings.insert(format!("mid_{}", i), key.to_lowercase());
+            }
+        }
+        for (i, key) in high.iter().enumerate() {
+            if i < 7 {
+                bindings.insert(format!("high_{}", i), key.to_lowercase());
+            }
+        }
+        println!("[KEYBOARD] Custom key bindings set: low={:?}, mid={:?}, high={:?}", low, mid, high);
+    }
 }
 
-/// Get current keyboard layout
-pub fn get_qwertz_mode() -> bool {
-    USE_QWERTZ.load(Ordering::SeqCst)
+/// Get current note key bindings
+pub fn get_note_key_bindings() -> (Vec<String>, Vec<String>, Vec<String>) {
+    let bindings = CUSTOM_KEY_BINDINGS.read().ok();
+
+    let low: Vec<String> = (0..7).map(|i| {
+        bindings.as_ref()
+            .and_then(|b| b.get(&format!("low_{}", i)))
+            .map(|s| s.clone())
+            .unwrap_or_else(|| DEFAULT_LOW_KEYS[i].to_string())
+    }).collect();
+
+    let mid: Vec<String> = (0..7).map(|i| {
+        bindings.as_ref()
+            .and_then(|b| b.get(&format!("mid_{}", i)))
+            .map(|s| s.clone())
+            .unwrap_or_else(|| DEFAULT_MID_KEYS[i].to_string())
+    }).collect();
+
+    let high: Vec<String> = (0..7).map(|i| {
+        bindings.as_ref()
+            .and_then(|b| b.get(&format!("high_{}", i)))
+            .map(|s| s.clone())
+            .unwrap_or_else(|| DEFAULT_HIGH_KEYS[i].to_string())
+    }).collect();
+
+    (low, mid, high)
+}
+
+/// Get the physical key for a logical note key
+fn get_bound_key(logical_key: &str) -> String {
+    // Map the default key names to their positions
+    let (octave, index) = match logical_key {
+        // Low octave
+        "z" => ("low", 0), "x" => ("low", 1), "c" => ("low", 2),
+        "v" => ("low", 3), "b" => ("low", 4), "n" => ("low", 5), "m" => ("low", 6),
+        // Mid octave
+        "a" => ("mid", 0), "s" => ("mid", 1), "d" => ("mid", 2),
+        "f" => ("mid", 3), "g" => ("mid", 4), "h" => ("mid", 5), "j" => ("mid", 6),
+        // High octave
+        "q" => ("high", 0), "w" => ("high", 1), "e" => ("high", 2),
+        "r" => ("high", 3), "t" => ("high", 4), "y" => ("high", 5), "u" => ("high", 6),
+        // Unknown - return as-is
+        _ => return logical_key.to_string(),
+    };
+
+    let binding_key = format!("{}_{}", octave, index);
+
+    if let Ok(bindings) = CUSTOM_KEY_BINDINGS.read() {
+        if let Some(bound) = bindings.get(&binding_key) {
+            return bound.clone();
+        }
+    }
+
+    // Return default
+    logical_key.to_string()
+}
+
+/// Reset key bindings to defaults
+pub fn reset_note_key_bindings() {
+    if let Ok(mut bindings) = CUSTOM_KEY_BINDINGS.write() {
+        bindings.clear();
+    }
+    println!("[KEYBOARD] Key bindings reset to defaults");
 }
 
 // Cached window handle and last check time
@@ -232,51 +321,43 @@ fn parse_key(key: &str) -> Option<(u32, Modifier)> {
     // Check for modifier prefix
     if key_lower.starts_with("shift+") {
         let base_key = &key_lower[6..];
-        return key_to_vk(base_key).map(|vk| (vk, Modifier::Shift));
+        // First resolve custom binding, then convert to VK
+        let bound_key = get_bound_key(base_key);
+        return char_to_vk(&bound_key).map(|vk| (vk, Modifier::Shift));
     }
     if key_lower.starts_with("ctrl+") {
         let base_key = &key_lower[5..];
-        return key_to_vk(base_key).map(|vk| (vk, Modifier::Ctrl));
+        let bound_key = get_bound_key(base_key);
+        return char_to_vk(&bound_key).map(|vk| (vk, Modifier::Ctrl));
     }
 
-    key_to_vk(&key_lower).map(|vk| (vk, Modifier::None))
+    // First resolve custom binding, then convert to VK
+    let bound_key = get_bound_key(&key_lower);
+    char_to_vk(&bound_key).map(|vk| (vk, Modifier::None))
 }
 
-/// Convert key string to virtual key code
+/// Convert a single character key to virtual key code
+/// This maps the actual keyboard character to its VK code
 #[cfg(target_os = "windows")]
-fn key_to_vk(key: &str) -> Option<u32> {
-    let qwertz = USE_QWERTZ.load(Ordering::SeqCst);
-
+fn char_to_vk(key: &str) -> Option<u32> {
     match key {
-        // Low octave: Z X C V B N M
-        // QWERTZ: Z and Y are swapped
-        "z" => Some(if qwertz { 0x59 } else { 0x5A }), // Y key on QWERTZ
-        "x" => Some(0x58),
-        "c" => Some(0x43),
-        "v" => Some(0x56),
-        "b" => Some(0x42),
-        "n" => Some(0x4E),
-        "m" => Some(0x4D),
-
-        // Mid octave: A S D F G H J
-        "a" => Some(0x41),
-        "s" => Some(0x53),
-        "d" => Some(0x44),
-        "f" => Some(0x46),
-        "g" => Some(0x47),
-        "h" => Some(0x48),
-        "j" => Some(0x4A),
-
-        // High octave: Q W E R T Y U
-        // QWERTZ: Z and Y are swapped
-        "q" => Some(0x51),
-        "w" => Some(0x57),
-        "e" => Some(0x45),
-        "r" => Some(0x52),
-        "t" => Some(0x54),
-        "y" => Some(if qwertz { 0x5A } else { 0x59 }), // Z key on QWERTZ
-        "u" => Some(0x55),
-
+        // Letters A-Z (VK codes 0x41-0x5A)
+        "a" => Some(0x41), "b" => Some(0x42), "c" => Some(0x43), "d" => Some(0x44),
+        "e" => Some(0x45), "f" => Some(0x46), "g" => Some(0x47), "h" => Some(0x48),
+        "i" => Some(0x49), "j" => Some(0x4A), "k" => Some(0x4B), "l" => Some(0x4C),
+        "m" => Some(0x4D), "n" => Some(0x4E), "o" => Some(0x4F), "p" => Some(0x50),
+        "q" => Some(0x51), "r" => Some(0x52), "s" => Some(0x53), "t" => Some(0x54),
+        "u" => Some(0x55), "v" => Some(0x56), "w" => Some(0x57), "x" => Some(0x58),
+        "y" => Some(0x59), "z" => Some(0x5A),
+        // Numbers 0-9 (VK codes 0x30-0x39)
+        "0" => Some(0x30), "1" => Some(0x31), "2" => Some(0x32), "3" => Some(0x33),
+        "4" => Some(0x34), "5" => Some(0x35), "6" => Some(0x36), "7" => Some(0x37),
+        "8" => Some(0x38), "9" => Some(0x39),
+        // Common punctuation
+        ";" | "semicolon" => Some(0xBA),
+        "," | "comma" => Some(0xBC),
+        "." | "period" => Some(0xBE),
+        "/" | "slash" => Some(0xBF),
         _ => None,
     }
 }
