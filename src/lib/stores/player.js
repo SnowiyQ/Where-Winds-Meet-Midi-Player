@@ -33,7 +33,21 @@ export const selectedTrackId = writable(null); // null = all, number = specific 
 
 // Playlist state
 export const midiFiles = writable([]);
+export const isLoadingMidi = writable(false);
+export const midiLoadProgress = writable({ loaded: 0, total: 0 });
+export const totalMidiCount = writable(0); // Total files in album folder
+export const hasMoreFiles = writable(false); // Whether there are more files to load
 export const playlist = writable([]);
+
+// Library play mode - play directly from library without queue
+export const libraryPlayMode = writable(false);
+export const libraryPlayIndex = writable(-1); // Current index in filtered library
+export const libraryPlayShuffle = writable(false);
+export const libraryShuffleOrder = writable([]); // Shuffled indices for shuffle mode
+
+// Large library threshold - show warning above this
+const LARGE_LIBRARY_THRESHOLD = 5000;
+const LOAD_BATCH_SIZE = 2000;
 export const currentIndex = writable(0);
 
 // Multiple playlists support
@@ -229,6 +243,14 @@ export async function initializeStorage() {
       activePlaylistId.set(storedActivePlaylist);
     }
 
+    // Sync favorites and playlists with current library (hydrate paths from hashes)
+    // This is needed because midiFiles may have loaded before storage was initialized
+    const currentFiles = get(midiFiles);
+    if (currentFiles.length > 0) {
+      syncFavoritesWithLibrary(currentFiles);
+      syncPlaylistsWithLibrary(currentFiles);
+    }
+
     // Load note mode from localStorage and sync with backend
     const storedNoteMode = localStorage.getItem(STORAGE_KEYS.NOTE_MODE);
     if (storedNoteMode) {
@@ -329,15 +351,57 @@ export function isFavorite(hash) {
   return result;
 }
 
-// Sync favorites with current midiFiles (hydrate paths, remove deleted)
+// Sync favorites with current midiFiles (hydrate paths only)
 // Note: Does NOT save - only updates in-memory state
+// Does NOT remove or replace favorites - only adds path property
 export function syncFavoritesWithLibrary(files) {
   const filesByHash = new Map(files.map(f => [f.hash, f]));
+  const filesByName = new Map(files.map(f => [f.name, f])); // Fallback by name
   favorites.update(favs => {
-    if (favs.length === 0) return favs; // Don't process if not loaded yet
-    return favs
-      .map(fav => filesByHash.get(fav.hash) || fav)
-      .filter(fav => filesByHash.has(fav.hash)); // Remove deleted files
+    if (favs.length === 0) return favs;
+    return favs.map(fav => {
+      // Try hash match first
+      let matched = filesByHash.get(fav.hash);
+      // Fallback to name match
+      if (!matched && fav.name) {
+        matched = filesByName.get(fav.name);
+      }
+      // Only ADD path to existing favorite, don't replace anything else
+      if (matched && matched.path) {
+        return { ...fav, path: matched.path };
+      }
+      return fav; // Keep favorite exactly as-is if no match
+    });
+  });
+}
+
+// Remove a file from favorites and playlists when deleted
+// This is called when a file is explicitly deleted (not during sync)
+export function removeDeletedFile(hash) {
+  // Remove from favorites
+  favorites.update(favs => {
+    const newFavs = favs.filter(f => f.hash !== hash);
+    if (newFavs.length !== favs.length) {
+      saveFavorites(newFavs);
+    }
+    return newFavs;
+  });
+
+  // Remove from all playlists
+  savedPlaylists.update(lists => {
+    let changed = false;
+    const newLists = lists.map(p => {
+      const newTracks = p.tracks.filter(t => t.hash !== hash);
+      if (newTracks.length !== p.tracks.length) {
+        changed = true;
+        return { ...p, tracks: newTracks };
+      }
+      return p;
+    });
+    if (changed) {
+      savePlaylists(newLists);
+    }
+    return newLists;
   });
 }
 
@@ -412,6 +476,25 @@ export function addToSavedPlaylist(playlistId, file) {
   });
 }
 
+// Add multiple files to playlist at once (single save - avoids race condition)
+export function addManyToSavedPlaylist(playlistId, files) {
+  savedPlaylists.update(lists => {
+    const newLists = lists.map(p => {
+      if (p.id === playlistId) {
+        // Filter out duplicates by hash
+        const existingHashes = new Set(p.tracks.map(t => t.hash));
+        const newTracks = files.filter(f => !existingHashes.has(f.hash));
+        if (newTracks.length > 0) {
+          return { ...p, tracks: [...p.tracks, ...newTracks] };
+        }
+      }
+      return p;
+    });
+    savePlaylists(newLists);
+    return newLists;
+  });
+}
+
 export function removeFromSavedPlaylist(playlistId, fileHash) {
   savedPlaylists.update(lists => {
     const newLists = lists.map(p => {
@@ -425,17 +508,29 @@ export function removeFromSavedPlaylist(playlistId, fileHash) {
   });
 }
 
-// Sync playlists with current midiFiles (hydrate paths, remove deleted)
+// Sync playlists with current midiFiles (hydrate paths only)
 // Note: Does NOT save - only updates in-memory state
+// Does NOT remove or replace tracks - only adds path property
 export function syncPlaylistsWithLibrary(files) {
   const filesByHash = new Map(files.map(f => [f.hash, f]));
+  const filesByName = new Map(files.map(f => [f.name, f])); // Fallback by name
   savedPlaylists.update(lists => {
-    if (lists.length === 0) return lists; // Don't process if not loaded yet
+    if (lists.length === 0) return lists;
     return lists.map(p => ({
       ...p,
-      tracks: p.tracks
-        .map(t => filesByHash.get(t.hash) || t)
-        .filter(t => filesByHash.has(t.hash)) // Remove deleted files
+      tracks: p.tracks.map(t => {
+        // Try hash match first
+        let matched = filesByHash.get(t.hash);
+        // Fallback to name match
+        if (!matched && t.name) {
+          matched = filesByName.get(t.name);
+        }
+        // Only ADD path to existing track, don't replace anything else
+        if (matched && matched.path) {
+          return { ...t, path: matched.path };
+        }
+        return t; // Keep track exactly as-is if no match
+      })
     }));
   });
 }
@@ -517,17 +612,139 @@ export const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Load MIDI files from album folder
-export async function loadMidiFiles() {
+// Check library size and cache status
+export async function getLibraryInfo() {
   try {
-    const files = await invoke('load_midi_files');
-    midiFiles.set(files);
-    // Sync favorites and playlists with updated file paths
-    syncFavoritesWithLibrary(files);
-    syncPlaylistsWithLibrary(files);
+    const info = await invoke('get_library_info');
+    totalMidiCount.set(info.total_files);
+    return info;
+  } catch (error) {
+    console.error('Failed to get library info:', error);
+    return { total_files: 0, cached_files: 0, is_mostly_cached: true };
+  }
+}
+
+// Check if library needs warning (large AND not cached)
+export async function shouldShowLibraryWarning() {
+  const info = await getLibraryInfo();
+  const isLarge = info.total_files > LARGE_LIBRARY_THRESHOLD;
+  // Only warn if large AND files aren't cached (first time load will be slow)
+  const needsWarning = isLarge && !info.is_mostly_cached;
+  return {
+    needsWarning,
+    isLarge,
+    count: info.total_files,
+    cachedCount: info.cached_files,
+    isCached: info.is_mostly_cached
+  };
+}
+
+// Load MIDI files from album folder (streaming for large libraries)
+// limit: max files to load (0 = all), append: whether to append to existing
+export async function loadMidiFiles(limit = 0, append = false) {
+  try {
+    isLoadingMidi.set(true);
+    midiLoadProgress.set({ loaded: 0, total: 0 });
+
+    // Get current files if appending
+    let existingFiles = [];
+    let offset = 0;
+    if (append) {
+      midiFiles.subscribe(files => {
+        existingFiles = files;
+        offset = files.length;
+      })();
+    } else {
+      // Clear existing files before loading
+      midiFiles.set([]);
+    }
+
+    // Collect files in memory to avoid frequent store updates (which cause lag)
+    let collectedFiles = [];
+
+    // Set up progress listener - returns a promise that resolves when done
+    await new Promise(async (resolve) => {
+      const unlisten = await listen('midi-load-progress', (event) => {
+        const { loaded, total, files: newFiles, done } = event.payload;
+
+        // Update progress counter (this is cheap)
+        midiLoadProgress.set({ loaded, total });
+
+        // Collect files in memory (don't update store yet - that causes lag)
+        if (newFiles && newFiles.length > 0) {
+          collectedFiles.push(...newFiles);
+        }
+
+        // Done loading - now update store ONCE with all files
+        if (done) {
+          // Single store update with all collected files
+          if (append) {
+            midiFiles.set([...existingFiles, ...collectedFiles]);
+          } else {
+            midiFiles.set(collectedFiles);
+          }
+
+          isLoadingMidi.set(false);
+
+          // Sync favorites and playlists with final file list
+          midiFiles.subscribe(files => {
+            syncFavoritesWithLibrary(files);
+            syncPlaylistsWithLibrary(files);
+          })();
+
+          // Check if there are more files
+          midiFiles.subscribe(loadedFiles => {
+            totalMidiCount.subscribe(total => {
+              hasMoreFiles.set(loadedFiles.length < total);
+            })();
+          })();
+
+          // Clean up and resolve
+          unlisten();
+          resolve();
+        }
+      });
+
+      // Start streaming load with offset and limit
+      await invoke('load_midi_files_streaming', {
+        offset: offset > 0 ? offset : null,
+        limit: limit > 0 ? limit : null
+      });
+
+      // Set a timeout in case no events come (e.g., empty folder)
+      setTimeout(() => {
+        // If timed out but we have files, still set them
+        if (collectedFiles.length > 0) {
+          if (append) {
+            midiFiles.set([...existingFiles, ...collectedFiles]);
+          } else {
+            midiFiles.set(collectedFiles);
+          }
+        }
+        isLoadingMidi.set(false);
+        unlisten();
+        resolve();
+      }, 120000); // 2 minute timeout for very large libraries
+    });
   } catch (error) {
     console.error('Failed to load MIDI files:', error);
+    isLoadingMidi.set(false);
   }
+}
+
+// Load more files (pagination)
+export async function loadMoreFiles() {
+  await loadMidiFiles(LOAD_BATCH_SIZE, true);
+}
+
+// Load initial batch for large libraries
+export async function loadInitialBatch() {
+  await loadMidiFiles(LOAD_BATCH_SIZE, false);
+}
+
+// Load all remaining files
+export async function loadAllFiles() {
+  await loadMidiFiles(0, true);
 }
 
 // Import a MIDI file to album folder
@@ -568,10 +785,18 @@ export async function setSelectedTrack(trackId) {
   await invoke('set_track_filter', { trackId });
 }
 
+// Store for tracking missing files (by hash)
+export const missingFiles = writable(new Set());
+
 // Play a MIDI file
 export async function playMidi(path) {
   try {
     delaySmartPause();
+
+    // If no path provided, file is missing
+    if (!path) {
+      throw new Error('FILE_MISSING');
+    }
 
     // Reset track selection when playing a different song
     const $currentFile = get(currentFile);
@@ -675,6 +900,8 @@ export async function stopPlayback() {
     isPaused.set(false);
     currentPosition.set(0);
     currentFile.set(null);
+    // Exit library play mode when stopped
+    exitLibraryPlayMode();
   } catch (error) {
     console.error('Failed to stop playback:', error);
   }
@@ -807,8 +1034,139 @@ export async function testAllKeys36() {
   }
 }
 
+// ============ Library Play Mode Functions ============
+
+// Start playing from library (no queue needed)
+export async function playAllLibrary(files, startIndex = 0, shuffle = false) {
+  if (!files || files.length === 0) return;
+
+  libraryPlayMode.set(true);
+  libraryPlayShuffle.set(shuffle);
+
+  if (shuffle) {
+    // Create shuffled order of indices
+    const indices = Array.from({ length: files.length }, (_, i) => i);
+    // Fisher-Yates shuffle
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    // Move startIndex to front if specified
+    if (startIndex > 0) {
+      const pos = indices.indexOf(startIndex);
+      if (pos > 0) {
+        indices.splice(pos, 1);
+        indices.unshift(startIndex);
+      }
+    }
+    libraryShuffleOrder.set(indices);
+    libraryPlayIndex.set(0);
+  } else {
+    libraryShuffleOrder.set([]);
+    libraryPlayIndex.set(startIndex);
+  }
+
+  // Play the first song
+  const actualIndex = shuffle ? get(libraryShuffleOrder)[0] : startIndex;
+  const file = files[actualIndex];
+  if (file) {
+    currentPosition.set(0);
+    totalDuration.set(0);
+    await playMidi(file.path);
+  }
+}
+
+// Exit library play mode
+export function exitLibraryPlayMode() {
+  libraryPlayMode.set(false);
+  libraryPlayIndex.set(-1);
+  libraryShuffleOrder.set([]);
+}
+
+// Play next in library mode (called internally)
+async function playNextLibrary(files) {
+  const $shuffle = get(libraryPlayShuffle);
+  let $index = get(libraryPlayIndex);
+  const $shuffleOrder = get(libraryShuffleOrder);
+  const $loopMode = get(loopMode);
+
+  let nextIndex;
+  if ($shuffle) {
+    nextIndex = $index + 1;
+    if (nextIndex >= $shuffleOrder.length) {
+      if ($loopMode) {
+        nextIndex = 0; // Loop back
+      } else {
+        exitLibraryPlayMode();
+        return;
+      }
+    }
+    libraryPlayIndex.set(nextIndex);
+    const actualIndex = $shuffleOrder[nextIndex];
+    if (files[actualIndex]) {
+      currentPosition.set(0);
+      totalDuration.set(0);
+      await playMidi(files[actualIndex].path);
+    }
+  } else {
+    nextIndex = $index + 1;
+    if (nextIndex >= files.length) {
+      if ($loopMode) {
+        nextIndex = 0; // Loop back
+      } else {
+        exitLibraryPlayMode();
+        return;
+      }
+    }
+    libraryPlayIndex.set(nextIndex);
+    if (files[nextIndex]) {
+      currentPosition.set(0);
+      totalDuration.set(0);
+      await playMidi(files[nextIndex].path);
+    }
+  }
+}
+
+// Play previous in library mode (called internally)
+async function playPreviousLibrary(files) {
+  const $shuffle = get(libraryPlayShuffle);
+  let $index = get(libraryPlayIndex);
+  const $shuffleOrder = get(libraryShuffleOrder);
+
+  let prevIndex;
+  if ($shuffle) {
+    prevIndex = $index - 1;
+    if (prevIndex < 0) prevIndex = $shuffleOrder.length - 1;
+    libraryPlayIndex.set(prevIndex);
+    const actualIndex = $shuffleOrder[prevIndex];
+    if (files[actualIndex]) {
+      currentPosition.set(0);
+      totalDuration.set(0);
+      await playMidi(files[actualIndex].path);
+    }
+  } else {
+    prevIndex = $index - 1;
+    if (prevIndex < 0) prevIndex = files.length - 1;
+    libraryPlayIndex.set(prevIndex);
+    if (files[prevIndex]) {
+      currentPosition.set(0);
+      totalDuration.set(0);
+      await playMidi(files[prevIndex].path);
+    }
+  }
+}
+
+// ============ Playlist Functions ============
+
 // Play next in playlist
 export async function playNext() {
+  // Check if in library play mode
+  if (get(libraryPlayMode)) {
+    const files = get(midiFiles);
+    await playNextLibrary(files);
+    return;
+  }
+
   const $playlist = get(playlist);
   const $currentFile = get(currentFile);
   const $shuffleMode = get(shuffleMode);
@@ -841,6 +1199,13 @@ export async function playNext() {
 
 // Play previous in playlist
 export async function playPrevious() {
+  // Check if in library play mode
+  if (get(libraryPlayMode)) {
+    const files = get(midiFiles);
+    await playPreviousLibrary(files);
+    return;
+  }
+
   const $playlist = get(playlist);
   const $currentFile = get(currentFile);
 
@@ -922,6 +1287,13 @@ export function initializeListeners() {
   listen('playback-ended', async () => {
     const $playlist = get(playlist);
     const $loopMode = get(loopMode);
+    const $libraryMode = get(libraryPlayMode);
+
+    // Library mode takes priority
+    if ($libraryMode) {
+      await playNext(); // playNext handles library mode internally
+      return;
+    }
 
     if ($loopMode && $playlist.length === 1) {
       // Restart the same song

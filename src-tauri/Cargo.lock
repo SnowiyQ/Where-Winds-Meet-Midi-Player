@@ -6305,6 +6305,7 @@ dependencies = [
  "log",
  "midly",
  "open",
+ "rayon",
  "serde",
  "serde_json",
  "simplelog",

@@ -837,8 +837,6 @@ pub fn play_midi(
     band_filter: Arc<std::sync::Mutex<Option<BandFilter>>>,
     window: Window,
 ) {
-    let offset_ms = (*seek_offset.lock().unwrap() * 1000.0) as u64;
-
     // Log band mode if active at start
     if let Some(ref filter) = *band_filter.lock().unwrap() {
         match filter {
@@ -868,6 +866,9 @@ pub fn play_midi(
     });
 
     loop {
+        // Get current seek offset (reset to 0 on loop)
+        let offset_ms = (*seek_offset.lock().unwrap() * 1000.0) as u64;
+
         // Track which key is pressed for each MIDI note (note -> key that was pressed)
         let mut note_to_pressed_key: std::collections::HashMap<u8, String> = std::collections::HashMap::new();
         // Track reference count for each key (multiple notes might map to same key)
@@ -1030,6 +1031,10 @@ pub fn play_midi(
         if !loop_mode.load(Ordering::SeqCst) {
             break;
         }
+
+        // Reset position to 0 for loop restart
+        *seek_offset.lock().unwrap() = 0.0;
+        *current_position.lock().unwrap() = 0.0;
 
         std::thread::sleep(Duration::from_millis(500));
     }

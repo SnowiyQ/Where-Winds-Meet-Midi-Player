@@ -2,7 +2,7 @@
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
-  import { loadMidiFiles } from "../stores/player.js";
+  import { loadMidiFiles, removeDeletedFile } from "../stores/player.js";
 
   // Props
   export let contextMenu = null; // { x, y, file }
@@ -52,6 +52,10 @@
   async function confirmDelete() {
     if (!deletingFile) return;
     try {
+      // Remove from favorites and playlists first (before file is gone)
+      if (deletingFile.hash) {
+        removeDeletedFile(deletingFile.hash);
+      }
       await invoke('delete_midi_file', { path: deletingFile.path });
       await loadMidiFiles();
     } catch (err) {

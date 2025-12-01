@@ -184,6 +184,8 @@
 
   import {
     loadMidiFiles,
+    shouldShowLibraryWarning,
+    loadInitialBatch,
     initializeListeners,
     isMinimized,
     isDraggable,
@@ -217,6 +219,10 @@
     selectedTrackId,
     loadTracksForFile,
     setSelectedTrack,
+    libraryPlayMode,
+    libraryPlayShuffle,
+    libraryPlayIndex,
+    exitLibraryPlayMode,
   } from "./lib/stores/player.js";
 
 
@@ -244,6 +250,8 @@
   let showTrackMenu = false;
   let showVisualizer = false;
   let showUpdateModal = false;
+  let showLargeLibraryModal = false;
+  let largeLibraryCount = 0;
 
   // Load tracks when current file changes
   $: if ($currentFile) {
@@ -364,7 +372,26 @@
 
   onMount(async () => {
     await loadWindowPosition(); // Restore window position
-    await loadMidiFiles();
+
+    // Check library size AND cache status before loading
+    const { needsWarning, isLarge, count, isCached } = await shouldShowLibraryWarning();
+
+    if (needsWarning) {
+      // Large library with uncached files - show warning (first time only)
+      largeLibraryCount = count;
+      showLargeLibraryModal = true;
+      // Don't auto-load, wait for user choice
+    } else if (isLarge && isCached) {
+      // Large library but cached - load all (fast)
+      await loadMidiFiles();
+    } else if (isLarge) {
+      // Large but somehow not cached and no warning? Load batch to be safe
+      await loadInitialBatch();
+    } else {
+      // Small library - just load all
+      await loadMidiFiles();
+    }
+
     await loadKeybindings(); // Load custom keybindings
     initializeListeners();
     initLibrary(); // Initialize library sharing (auto-connects if was enabled)
@@ -743,28 +770,48 @@
               {/if}
               <!-- Game Status Dot -->
               <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#121212] {gameFound ? 'bg-[#1db954]' : 'bg-red-500'} {gameFound && $isPlaying ? 'animate-pulse' : ''}"></div>
+              <!-- Library Mode Indicator Dot -->
+              {#if $libraryPlayMode}
+                <div class="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-[#121212] bg-purple-500" title="Library Play Mode"></div>
+              {/if}
             </div>
             <div class="min-w-0 flex-1">
               <p class="text-sm font-semibold truncate text-white/90">
                 {filename($currentFile)}
               </p>
               <p class="text-xs text-white/50 truncate">
-                {#if $playlist.length > 0}
+                {#if $libraryPlayMode}
+                  <span class="text-purple-400 flex items-center gap-1">
+                    <Icon icon={$libraryPlayShuffle ? "mdi:shuffle" : "mdi:library-music"} class="w-3 h-3 inline" />
+                    {$libraryPlayShuffle ? 'Shuffle' : 'Library'} • {($libraryPlayIndex + 1).toLocaleString()} / {$midiFiles.length.toLocaleString()}
+                  </span>
+                {:else if $playlist.length > 0}
                   {$playlist.length} tracks in queue
                 {:else}
                   No tracks in queue
                 {/if}
               </p>
             </div>
-            {#if $currentFile}
-              <button
-                class="p-1.5 rounded-full transition-all flex-shrink-0 {currentFileIsFavorite ? 'text-[#1db954]' : 'text-white/30 hover:text-white'}"
-                onclick={toggleCurrentFavorite}
-                title={currentFileIsFavorite ? "Remove from favorites" : "Add to favorites"}
-              >
-                <Icon icon={currentFileIsFavorite ? "mdi:heart" : "mdi:heart-outline"} class="w-5 h-5" />
-              </button>
-            {/if}
+            <div class="flex items-center gap-1 flex-shrink-0">
+              {#if $libraryPlayMode}
+                <button
+                  class="p-1.5 rounded-full text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all"
+                  onclick={exitLibraryPlayMode}
+                  title="Exit library play mode"
+                >
+                  <Icon icon="mdi:close-circle" class="w-5 h-5" />
+                </button>
+              {/if}
+              {#if $currentFile}
+                <button
+                  class="p-1.5 rounded-full transition-all {currentFileIsFavorite ? 'text-[#1db954]' : 'text-white/30 hover:text-white'}"
+                  onclick={toggleCurrentFavorite}
+                  title={currentFileIsFavorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Icon icon={currentFileIsFavorite ? "mdi:heart" : "mdi:heart-outline"} class="w-5 h-5" />
+                </button>
+              {/if}
+            </div>
           </div>
 
           <!-- Player Controls Center -->
@@ -1092,6 +1139,83 @@
               Manual Download
             </button>
           {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Large Library Warning Modal -->
+{#if showLargeLibraryModal}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+    transition:fade={{ duration: 150 }}
+  >
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/60"></div>
+
+    <!-- Modal -->
+    <div
+      class="relative bg-[#282828] rounded-xl shadow-2xl w-[450px] max-w-[90vw] overflow-hidden"
+      transition:fly={{ y: 20, duration: 200 }}
+    >
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-white/10">
+        <h3 class="text-lg font-bold flex items-center gap-2">
+          <Icon icon="mdi:alert-circle" class="w-5 h-5 text-yellow-400" />
+          Large Library Detected
+        </h3>
+      </div>
+
+      <!-- Content -->
+      <div class="p-4 space-y-4">
+        <div class="flex items-center gap-4">
+          <div class="w-16 h-16 rounded-xl bg-yellow-500/10 flex items-center justify-center">
+            <Icon icon="mdi:folder-music" class="w-10 h-10 text-yellow-400" />
+          </div>
+          <div>
+            <p class="text-2xl font-bold text-yellow-400">{largeLibraryCount.toLocaleString()}</p>
+            <p class="text-sm text-white/50">MIDI files found</p>
+          </div>
+        </div>
+
+        <p class="text-sm text-white/70">
+          Your library has a lot of files. Loading all of them at once may take a while and use significant memory.
+        </p>
+
+        <div class="p-3 rounded-lg bg-white/5">
+          <p class="text-xs text-white/50 mb-2">Recommendation:</p>
+          <p class="text-sm text-white/70">
+            Load 2,000 files at a time. You can always load more later from the library view.
+          </p>
+        </div>
+
+        <p class="text-xs text-white/40 italic">
+          This message only shows once. After loading, files are cached for instant startup.
+        </p>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-2 pt-2">
+          <button
+            class="flex-1 px-4 py-2.5 rounded-lg bg-[#1db954] hover:bg-[#1ed760] text-white font-medium text-sm transition-colors flex items-center justify-center gap-2"
+            onclick={async () => {
+              showLargeLibraryModal = false;
+              await loadInitialBatch();
+            }}
+          >
+            <Icon icon="mdi:lightning-bolt" class="w-4 h-4" />
+            Load 2,000 (Recommended)
+          </button>
+          <button
+            class="flex-1 px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white/70 font-medium text-sm transition-colors flex items-center justify-center gap-2"
+            onclick={async () => {
+              showLargeLibraryModal = false;
+              await loadMidiFiles();
+            }}
+          >
+            <Icon icon="mdi:download" class="w-4 h-4" />
+            Load All
+          </button>
         </div>
       </div>
     </div>

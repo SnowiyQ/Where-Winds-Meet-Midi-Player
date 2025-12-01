@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::{Arc, Mutex};
+use rayon::prelude::*;
 use log::{info, warn, error};
 use simplelog::{WriteLogger, CombinedLogger, TermLogger, LevelFilter, Config, ConfigBuilder, TerminalMode, ColorChoice};
 use std::fs::File;
@@ -335,6 +336,10 @@ struct CachedMetadata {
     duration: f64,
     bpm: u16,
     note_density: f32,
+    #[serde(default)]
+    hash: String,
+    #[serde(default)]
+    size: u64,
 }
 
 fn get_metadata_cache_path() -> Result<std::path::PathBuf, String> {
@@ -405,6 +410,7 @@ const HOTKEY_PREV_F10: i32 = 4;
 const HOTKEY_NEXT_F11: i32 = 5;
 
 // Load MIDI files from album folder with metadata caching
+// Note: For large libraries (1000+ files), use load_midi_files_streaming instead
 #[tauri::command]
 async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
     let album_path = get_album_folder()?;
@@ -434,44 +440,46 @@ async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
                 .to_string();
             let mtime = get_file_mtime(&path);
 
-            // Check cache
-            let metadata = if let Some(cached) = cache.files.get(&path_str) {
-                if cached.mtime == mtime {
-                    // Cache hit
-                    (cached.duration, cached.bpm, cached.note_density)
-                } else {
-                    // File modified, re-parse
-                    let meta = midi::get_midi_metadata(&path_str).unwrap_or(midi::MidiMetadata {
-                        duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+            // Check cache - now includes hash and size
+            if let Some(cached) = cache.files.get(&path_str) {
+                if cached.mtime == mtime && !cached.hash.is_empty() {
+                    // Full cache hit
+                    files.push(MidiFile {
+                        name,
+                        path: path_str,
+                        duration: cached.duration,
+                        bpm: cached.bpm,
+                        note_density: cached.note_density,
+                        hash: cached.hash.clone(),
+                        size: cached.size,
                     });
-                    cache.files.insert(path_str.clone(), CachedMetadata {
-                        mtime, duration: meta.duration, bpm: meta.bpm, note_density: meta.note_density
-                    });
-                    cache_modified = true;
-                    (meta.duration, meta.bpm, meta.note_density)
+                    continue;
                 }
-            } else {
-                // Not in cache, parse
-                let meta = midi::get_midi_metadata(&path_str).unwrap_or(midi::MidiMetadata {
-                    duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
-                });
-                cache.files.insert(path_str.clone(), CachedMetadata {
-                    mtime, duration: meta.duration, bpm: meta.bpm, note_density: meta.note_density
-                });
-                cache_modified = true;
-                (meta.duration, meta.bpm, meta.note_density)
-            };
+            }
 
-            // Compute file hash and size
+            // Cache miss or stale - parse and compute
+            let meta = midi::get_midi_metadata(&path_str).unwrap_or(midi::MidiMetadata {
+                duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+            });
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let file_hash = compute_file_hash(&path).unwrap_or_else(|| format!("{:x}", file_size));
+
+            cache.files.insert(path_str.clone(), CachedMetadata {
+                mtime,
+                duration: meta.duration,
+                bpm: meta.bpm,
+                note_density: meta.note_density,
+                hash: file_hash.clone(),
+                size: file_size,
+            });
+            cache_modified = true;
 
             files.push(MidiFile {
                 name,
                 path: path_str,
-                duration: metadata.0,
-                bpm: metadata.1,
-                note_density: metadata.2,
+                duration: meta.duration,
+                bpm: meta.bpm,
+                note_density: meta.note_density,
                 hash: file_hash,
                 size: file_size,
             });
@@ -484,6 +492,245 @@ async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
     }
 
     Ok(files)
+}
+
+// Progress event payload for streaming load
+#[derive(Clone, Serialize)]
+struct MidiLoadProgress {
+    loaded: usize,
+    total: usize,
+    files: Vec<MidiFile>,
+    done: bool,
+}
+
+// Library info - count and cache status
+#[derive(Clone, Serialize)]
+struct LibraryInfo {
+    total_files: usize,
+    cached_files: usize,
+    is_mostly_cached: bool, // true if >80% files are cached
+}
+
+// Quick count of MIDI files and check cache status
+#[tauri::command]
+async fn get_library_info() -> Result<LibraryInfo, String> {
+    let album_path = get_album_folder()?;
+    if !album_path.exists() {
+        return Ok(LibraryInfo {
+            total_files: 0,
+            cached_files: 0,
+            is_mostly_cached: true,
+        });
+    }
+
+    // Get all midi files
+    let files: Vec<_> = std::fs::read_dir(&album_path)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("mid"))
+        .collect();
+
+    let total_files = files.len();
+
+    // Load cache and count how many files are cached
+    let cache = load_metadata_cache();
+    let mut cached_count = 0;
+
+    for path in &files {
+        let path_str = path.to_string_lossy().to_string();
+        let mtime = get_file_mtime(path);
+
+        if let Some(cached) = cache.files.get(&path_str) {
+            if cached.mtime == mtime && !cached.hash.is_empty() {
+                cached_count += 1;
+            }
+        }
+    }
+
+    // Consider "mostly cached" if >80% files have valid cache
+    let is_mostly_cached = total_files == 0 || (cached_count as f64 / total_files as f64) > 0.8;
+
+    Ok(LibraryInfo {
+        total_files,
+        cached_files: cached_count,
+        is_mostly_cached,
+    })
+}
+
+// Quick count of MIDI files without loading metadata (legacy)
+#[tauri::command]
+async fn count_midi_files() -> Result<usize, String> {
+    let album_path = get_album_folder()?;
+    if !album_path.exists() {
+        return Ok(0);
+    }
+
+    let count = std::fs::read_dir(&album_path)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("mid"))
+        .count();
+
+    Ok(count)
+}
+
+// Load MIDI files with streaming progress events (for large libraries)
+// offset: skip first N files (for pagination)
+// limit: max files to load (0 = all)
+#[tauri::command]
+async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit: Option<usize>) -> Result<(), String> {
+    let album_path = get_album_folder()?;
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(0); // 0 means no limit
+
+    if !album_path.exists() {
+        let _ = window.emit("midi-load-progress", MidiLoadProgress {
+            loaded: 0, total: 0, files: vec![], done: true
+        });
+        return Ok(());
+    }
+
+    // Spawn blocking work in a separate thread so events can be emitted
+    let window_clone = window.clone();
+    std::thread::spawn(move || {
+        // First pass: quickly collect all .mid file paths
+        let all_entries: Vec<_> = match std::fs::read_dir(&album_path) {
+            Ok(dir) => dir
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("mid"))
+                .collect(),
+            Err(_) => {
+                let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
+                    loaded: 0, total: 0, files: vec![], done: true
+                });
+                return;
+            }
+        };
+
+        let total_all = all_entries.len();
+
+        // Apply offset and limit
+        let entries: Vec<_> = if limit > 0 {
+            all_entries.into_iter().skip(offset).take(limit).collect()
+        } else {
+            all_entries.into_iter().skip(offset).collect()
+        };
+
+        let total_to_load = entries.len();
+
+        // Emit initial count so UI knows total
+        let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
+            loaded: 0, total: total_to_load, files: vec![], done: false
+        });
+
+        if total_to_load == 0 {
+            let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
+                loaded: 0, total: 0, files: vec![], done: true
+            });
+            return;
+        }
+
+        // Load cache once - take ownership to avoid repeated locking
+        let mut cache = load_metadata_cache();
+        let mut cache_modified = false;
+
+        // Process in batches - larger batches = fewer UI updates = less lag
+        const BATCH_SIZE: usize = 2000;
+        let mut loaded_count = 0usize;
+
+        for batch_start in (0..total_to_load).step_by(BATCH_SIZE) {
+            let batch_end = (batch_start + BATCH_SIZE).min(total_to_load);
+            let batch_paths = &entries[batch_start..batch_end];
+
+            // Step 1: Check cache for each file (single-threaded, fast HashMap lookups)
+            let mut cached_files: Vec<MidiFile> = Vec::new();
+            let mut uncached: Vec<(&std::path::PathBuf, String, String, u64)> = Vec::new();
+
+            for path in batch_paths {
+                let path_str = path.to_string_lossy().to_string();
+                let name = path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let mtime = get_file_mtime(path);
+
+                if let Some(cached) = cache.files.get(&path_str) {
+                    if cached.mtime == mtime && !cached.hash.is_empty() {
+                        // Full cache hit - use all cached data (no file I/O needed!)
+                        cached_files.push(MidiFile {
+                            name,
+                            path: path_str,
+                            duration: cached.duration,
+                            bpm: cached.bpm,
+                            note_density: cached.note_density,
+                            hash: cached.hash.clone(),
+                            size: cached.size,
+                        });
+                        continue;
+                    }
+                }
+                // Cache miss or stale - need to parse
+                uncached.push((path, path_str, name, mtime));
+            }
+
+            // Step 2: Parse uncached files in parallel (no locking needed)
+            let parsed_files: Vec<(MidiFile, String, u64, f64, u16, f32, String, u64)> = uncached.par_iter()
+                .filter_map(|(path, path_str, name, mtime)| {
+                    let meta = midi::get_midi_metadata(path_str).unwrap_or(midi::MidiMetadata {
+                        duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+                    });
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    let file_hash = compute_file_hash(path).unwrap_or_else(|| format!("{:x}", file_size));
+
+                    Some((
+                        MidiFile {
+                            name: name.clone(),
+                            path: path_str.clone(),
+                            duration: meta.duration,
+                            bpm: meta.bpm,
+                            note_density: meta.note_density,
+                            hash: file_hash.clone(),
+                            size: file_size,
+                        },
+                        path_str.clone(),
+                        *mtime,
+                        meta.duration,
+                        meta.bpm,
+                        meta.note_density,
+                        file_hash,
+                        file_size,
+                    ))
+                })
+                .collect();
+
+            // Step 3: Update cache with newly parsed files (single-threaded)
+            for (file, path_str, mtime, duration, bpm, note_density, hash, size) in parsed_files {
+                cache.files.insert(path_str, CachedMetadata {
+                    mtime, duration, bpm, note_density, hash, size
+                });
+                cache_modified = true;
+                cached_files.push(file);
+            }
+
+            // Emit progress with all files from this batch
+            loaded_count += cached_files.len();
+            let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
+                loaded: loaded_count,
+                total: total_to_load,
+                files: cached_files,
+                done: loaded_count >= total_to_load,
+            });
+        }
+
+        // Save cache if modified
+        if cache_modified {
+            save_metadata_cache(&cache);
+        }
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1047,6 +1294,12 @@ async fn check_midi_exists(filename: String) -> Result<Option<String>, String> {
     } else {
         Ok(None)
     }
+}
+
+// Check if a file exists at the given path
+#[tauri::command]
+async fn check_file_exists(file_path: String) -> bool {
+    std::path::Path::new(&file_path).exists()
 }
 
 // Band mode: Save MIDI file to temp for playback
@@ -1821,6 +2074,104 @@ async fn export_playlist(
     Ok(())
 }
 
+// Export entire library to a zip file
+#[tauri::command]
+async fn export_library(
+    export_path: String,
+    window: Window,
+) -> Result<u32, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let album_dir = get_album_folder().map_err(|e| e.to_string())?;
+    if !album_dir.exists() {
+        return Err("Album folder not found".to_string());
+    }
+
+    // Collect all MIDI files
+    let midi_files: Vec<_> = std::fs::read_dir(&album_dir)
+        .map_err(|e| format!("Failed to read album folder: {}", e))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.path().extension()
+                .map(|ext| ext.to_string_lossy().to_lowercase() == "mid")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    let total_files = midi_files.len();
+    if total_files == 0 {
+        return Err("No MIDI files found in library".to_string());
+    }
+
+    let file = std::fs::File::create(&export_path)
+        .map_err(|e| format!("Failed to create zip file: {}", e))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut exported_count = 0u32;
+
+    for (index, entry) in midi_files.iter().enumerate() {
+        let source_path = entry.path();
+        let filename = source_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown.mid")
+            .to_string();
+
+        // Read and add file to zip
+        match std::fs::read(&source_path) {
+            Ok(midi_data) => {
+                if let Err(e) = zip.start_file(&filename, options) {
+                    app_log!("[EXPORT] Failed to add {}: {}", filename, e);
+                    continue;
+                }
+                if let Err(e) = zip.write_all(&midi_data) {
+                    app_log!("[EXPORT] Failed to write {}: {}", filename, e);
+                    continue;
+                }
+                exported_count += 1;
+            }
+            Err(e) => {
+                app_log!("[EXPORT] Failed to read {}: {}", filename, e);
+                continue;
+            }
+        }
+
+        // Emit progress every 100 files
+        if index % 100 == 0 || index == total_files - 1 {
+            let _ = window.emit("export-progress", serde_json::json!({
+                "current": index + 1,
+                "total": total_files
+            }));
+        }
+    }
+
+    // Add simple metadata
+    let metadata = serde_json::json!({
+        "export_type": "library",
+        "name": "Full Library",
+        "file_count": exported_count,
+        "exported_at": chrono_now(),
+        "version": "1.0"
+    });
+
+    let metadata_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+
+    zip.start_file("metadata.json", options)
+        .map_err(|e| format!("Failed to add metadata to zip: {}", e))?;
+    zip.write_all(metadata_json.as_bytes())
+        .map_err(|e| format!("Failed to write metadata: {}", e))?;
+
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize zip: {}", e))?;
+
+    app_log!("[EXPORT] Library export complete: {} files", exported_count);
+    Ok(exported_count)
+}
+
 // Import result structure
 #[derive(Debug, Serialize, Deserialize)]
 struct ImportResult {
@@ -2320,6 +2671,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             load_midi_files,
+            load_midi_files_streaming,
+            count_midi_files,
+            get_library_info,
             get_midi_tracks,
             play_midi,
             play_midi_band,
@@ -2370,6 +2724,7 @@ fn main() {
             reset_album_path,
             read_midi_base64,
             check_midi_exists,
+            check_file_exists,
             save_temp_midi,
             verify_midi_data,
             save_midi_from_base64,
@@ -2390,6 +2745,7 @@ fn main() {
             save_playlists,
             export_favorites,
             export_playlist,
+            export_library,
             import_zip,
         ])
         .run(tauri::generate_context!())

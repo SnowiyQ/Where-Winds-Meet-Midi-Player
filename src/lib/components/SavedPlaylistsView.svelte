@@ -19,10 +19,13 @@
     reorderSavedPlaylist,
     setPlaylistTracks,
     setPlaylistsOrder,
-    addToSavedPlaylist,
+    addManyToSavedPlaylist,
     playMidi,
     playlist,
     activePlaylistId,
+    currentFile,
+    isPlaying,
+    isPaused,
   } from "../stores/player.js";
   import SongContextMenu from "./SongContextMenu.svelte";
 
@@ -240,10 +243,8 @@
           const playlistName = result.export_type === "playlist" ? result.name : "Imported";
           const newPlaylistId = createPlaylist(playlistName);
 
-          // Add all imported files to the new playlist
-          for (const file of result.imported_files) {
-            addToSavedPlaylist(newPlaylistId, file);
-          }
+          // Add all imported files at once (single save to avoid race condition)
+          addManyToSavedPlaylist(newPlaylistId, result.imported_files);
 
           // Select the new playlist
           selectedPlaylistId = newPlaylistId;
@@ -340,38 +341,56 @@
       onfinalize={handleTrackDndFinalize}
     >
       {#each trackItems as track, index (track.id)}
+        {@const isMissing = !track.path}
+        {@const isCurrentTrack = $currentFile === track.path}
+        {@const isPlayingTrack = isCurrentTrack && $isPlaying && !$isPaused}
         <div
-          class="group spotify-list-item flex items-center gap-3 py-2 mb-1 cursor-grab active:cursor-grabbing hover:bg-white/5"
+          class="group spotify-list-item flex items-center gap-3 py-2 mb-1 cursor-grab active:cursor-grabbing transition-all duration-200 {isCurrentTrack ? 'bg-white/10 ring-1 ring-white/5' : 'hover:bg-white/5'} {isMissing ? 'opacity-50' : ''}"
           animate:flip={{ duration: flipDurationMs }}
-          oncontextmenu={(e) => handleContextMenu(e, track)}
+          oncontextmenu={(e) => !isMissing && handleContextMenu(e, track)}
         >
           <!-- Drag Handle -->
           <div class="text-white/30 hover:text-white/60 transition-colors flex-shrink-0">
-            <Icon icon="mdi:drag-vertical" class="w-4 h-4" />
+            <Icon icon="mdi:drag-vertical" class="w-5 h-5" />
           </div>
 
-          <!-- Track Number / Play Button -->
-          <div class="w-6 flex items-center justify-center flex-shrink-0">
-            <span class="text-sm text-white/40 group-hover:hidden">{index + 1}</span>
-            <button
-              class="hidden group-hover:flex items-center justify-center w-6 h-6 rounded-full bg-[#1db954] hover:scale-110 transition-transform"
-              onclick={() => handlePlayTrack(track)}
-              title="Play"
-            >
-              <Icon icon="mdi:play" class="w-4 h-4 text-black" />
-            </button>
+          <!-- Track Number / Play Button / Playing Indicator / Missing Icon -->
+          <div class="w-8 flex items-center justify-center flex-shrink-0">
+            {#if isMissing}
+              <Icon icon="mdi:file-alert" class="w-5 h-5 text-red-400" title="File missing" />
+            {:else if isPlayingTrack}
+              <div class="flex items-end gap-0.5 h-4">
+                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 60%; animation: music-bar-1 0.6s ease-in-out infinite;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 100%; animation: music-bar-2 0.8s ease-in-out infinite;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 80%; animation: music-bar-3 0.7s ease-in-out infinite;"></div>
+              </div>
+            {:else}
+              <span class="text-sm text-white/40 {isCurrentTrack ? 'text-[#1db954] font-semibold' : ''} group-hover:hidden">{index + 1}</span>
+              <button
+                class="hidden group-hover:flex items-center justify-center w-7 h-7 rounded-full bg-[#1db954] hover:scale-110 transition-transform shadow-lg"
+                onclick={() => handlePlayTrack(track)}
+                title="Play"
+              >
+                <Icon icon="mdi:play" class="w-4 h-4 text-black" />
+              </button>
+            {/if}
           </div>
 
           <!-- Track Info -->
           <div
-            class="flex-1 min-w-0 cursor-pointer"
-            onclick={() => handlePlayTrack(track)}
+            class="flex-1 min-w-0 {isMissing ? 'cursor-default' : 'cursor-pointer'}"
+            onclick={() => !isMissing && handlePlayTrack(track)}
           >
-            <p class="text-sm font-medium text-white truncate group-hover:text-[#1db954] transition-colors">
+            <p class="text-sm font-medium truncate transition-colors {isMissing ? 'text-red-400 line-through' : isCurrentTrack ? 'text-[#1db954]' : 'text-white group-hover:text-[#1db954]'}">
               {track.name}
             </p>
             <p class="text-xs text-white/40">
-              {track.bpm || 120} BPM • {#if (track.note_density || 0) < 3}Easy{:else if (track.note_density || 0) < 6}Medium{:else if (track.note_density || 0) < 10}Hard{:else}Expert{/if}
+              {#if isMissing}
+                <span class="text-red-400">File missing</span> •
+                <button class="text-red-400 hover:text-red-300 underline" onclick={() => handleRemoveTrack(track.hash)}>Remove</button>
+              {:else}
+                {track.bpm || 120} BPM • {#if (track.note_density || 0) < 3}Easy{:else if (track.note_density || 0) < 6}Medium{:else if (track.note_density || 0) < 10}Hard{:else}Expert{/if}
+              {/if}
             </p>
           </div>
 
@@ -717,5 +736,18 @@
 <style>
   :global(.spotify-card) {
     outline: none !important;
+  }
+
+  @keyframes music-bar-1 {
+    0%, 100% { height: 20%; }
+    50% { height: 80%; }
+  }
+  @keyframes music-bar-2 {
+    0%, 100% { height: 60%; }
+    50% { height: 100%; }
+  }
+  @keyframes music-bar-3 {
+    0%, 100% { height: 40%; }
+    50% { height: 90%; }
   }
 </style>

@@ -18,6 +18,8 @@
     toggleFavorite,
     clearAllFavorites,
     reorderFavorites,
+    missingFiles,
+    removeDeletedFile,
   } from "../stores/player.js";
   import SongContextMenu from "./SongContextMenu.svelte";
 
@@ -25,6 +27,24 @@
   let contextMenu = null;
   let isExporting = false;
   let isImporting = false;
+  let toast = null;
+  let toastTimeout = null;
+
+  function showToast(message, type = "success") {
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toast = { message, type };
+    toastTimeout = setTimeout(() => { toast = null; }, 3000);
+  }
+
+  function handleRemoveMissing(file) {
+    removeDeletedFile(file.hash);
+    missingFiles.update(set => {
+      const newSet = new Set(set);
+      newSet.delete(file.hash);
+      return newSet;
+    });
+    showToast(`Removed "${file.name}"`, "success");
+  }
 
   function handleContextMenu(e, file) {
     e.preventDefault();
@@ -76,15 +96,28 @@
     }, 100);
   });
 
-  async function handlePlay(file) {
-    // Add to playlist if not already there
-    playlist.update((list) => {
-      if (!list.find((f) => f.path === file.path)) {
-        return [...list, file];
+  async function playNow(file) {
+    try {
+      // Add to playlist if not already there
+      playlist.update((list) => {
+        if (!list.find((f) => f.path === file.path)) {
+          return [...list, file];
+        }
+        return list;
+      });
+      await playMidi(file.path);
+    } catch (error) {
+      if (error.message === 'FILE_MISSING') {
+        missingFiles.update(set => {
+          const newSet = new Set(set);
+          newSet.add(file.hash);
+          return newSet;
+        });
+        showToast(`"${file.name}" no longer exists`, "error");
+      } else {
+        showToast(error.toString(), "error");
       }
-      return list;
-    });
-    await playMidi(file.path);
+    }
   }
 
   function addToQueue(file) {
@@ -96,10 +129,27 @@
     });
   }
 
-  function playAllFavorites() {
+  async function playAllFavorites() {
     if ($favorites.length === 0) return;
-    playlist.set([...$favorites]);
-    playMidi($favorites[0].path);
+    // Filter out missing files
+    const validFavorites = $favorites.filter(f => !$missingFiles.has(f.hash));
+    if (validFavorites.length === 0) {
+      showToast("All favorites are missing", "error");
+      return;
+    }
+    playlist.set([...validFavorites]);
+    try {
+      await playMidi(validFavorites[0].path);
+    } catch (error) {
+      if (error.message === 'FILE_MISSING') {
+        missingFiles.update(set => {
+          const newSet = new Set(set);
+          newSet.add(validFavorites[0].hash);
+          return newSet;
+        });
+        showToast(`"${validFavorites[0].name}" no longer exists`, "error");
+      }
+    }
   }
 
   async function exportFavorites() {
@@ -237,11 +287,12 @@
       onfinalize={handleDndFinalize}
     >
       {#each items as item, index (item.id)}
+        {@const isMissing = !item.path || $missingFiles.has(item.hash)}
         <div
           class="group spotify-list-item flex items-center gap-4 py-2 cursor-grab active:cursor-grabbing transition-all duration-200 {$currentFile ===
           item.path
             ? 'bg-white/10 ring-1 ring-white/5'
-            : 'hover:bg-white/5'}"
+            : 'hover:bg-white/5'} {isMissing ? 'opacity-50' : ''}"
           animate:flip={{ duration: flipDurationMs }}
           oncontextmenu={(e) => handleContextMenu(e, item)}
         >
@@ -254,7 +305,9 @@
 
           <!-- Number / Play Button / Playing Indicator -->
           <div class="w-8 flex items-center justify-center flex-shrink-0">
-            {#if $currentFile === item.path && $isPlaying && !$isPaused}
+            {#if isMissing}
+              <Icon icon="mdi:file-alert" class="w-5 h-5 text-red-400" title="File missing" />
+            {:else if $currentFile === item.path && $isPlaying && !$isPaused}
               <div class="flex items-end gap-0.5 h-4">
                 <div
                   class="w-0.5 bg-[#1db954] rounded-full"
@@ -277,7 +330,7 @@
               >
               <button
                 class="hidden group-hover:flex items-center justify-center w-7 h-7 rounded-full bg-[#1db954] hover:scale-110 transition-transform shadow-lg"
-                onclick={() => handlePlay(item)}
+                onclick={() => playNow(item)}
                 title="Play"
               >
                 <Icon icon="mdi:play" class="w-4 h-4 text-black" />
@@ -290,24 +343,26 @@
             class="flex-1 min-w-0 cursor-pointer"
             role="button"
             tabindex="0"
-            onclick={() => handlePlay(item)}
+            onclick={() => isMissing ? null : playNow(item)}
             onkeydown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                handlePlay(item);
+                if (!isMissing) playNow(item);
               }
             }}
           >
             <p
-              class="text-sm font-medium text-white truncate transition-colors {$currentFile ===
-              item.path
-                ? 'text-[#1db954]'
-                : 'group-hover:text-white'}"
+              class="text-sm font-medium truncate transition-colors {isMissing ? 'text-red-400 line-through' : $currentFile === item.path ? 'text-[#1db954]' : 'text-white group-hover:text-white'}"
             >
               {item.name}
             </p>
             <p class="text-xs text-white/40">
-              {item.bpm || 120} BPM • {#if (item.note_density || 0) < 3}Easy{:else if (item.note_density || 0) < 6}Medium{:else if (item.note_density || 0) < 10}Hard{:else}Expert{/if}
+              {#if isMissing}
+                <span class="text-red-400">File missing</span> •
+                <button class="text-red-400 hover:text-red-300 underline" onclick={() => handleRemoveMissing(item)}>Remove</button>
+              {:else}
+                {item.bpm || 120} BPM • {#if (item.note_density || 0) < 3}Easy{:else if (item.note_density || 0) < 6}Medium{:else if (item.note_density || 0) < 10}Hard{:else}Expert{/if}
+              {/if}
             </p>
           </div>
 
@@ -417,6 +472,16 @@
 <svelte:window onclick={() => contextMenu = null} />
 
 <SongContextMenu {contextMenu} onClose={() => contextMenu = null} />
+
+<!-- Toast -->
+{#if toast}
+  <div
+    class="fixed bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg z-50 {toast.type === 'error' ? 'bg-red-500' : 'bg-[#1db954]'} text-white text-sm font-medium"
+    transition:fly={{ y: 20, duration: 200 }}
+  >
+    {toast.message}
+  </div>
+{/if}
 
 <style>
   .dnd-zone {

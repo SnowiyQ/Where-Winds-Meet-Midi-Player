@@ -28,6 +28,7 @@ tower-http = { version = "0.5", features = ["cors"] }
 zip = "2"
 log = "0.4"
 simplelog = "0.12"
+rayon = "1.10"
 
 [features]
 default = ["custom-protocol"]
