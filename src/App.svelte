@@ -20,6 +20,31 @@
   let gameFound = false;
   let checkInterval;
 
+  // Always on top toggle
+  let isAlwaysOnTop = true; // Default from tauri.conf.json
+
+  async function loadAlwaysOnTop() {
+    try {
+      const saved = await invoke('get_always_on_top');
+      isAlwaysOnTop = saved;
+      const appWindow = getCurrentWindow();
+      await appWindow.setAlwaysOnTop(isAlwaysOnTop);
+    } catch (e) {
+      console.error('Failed to load always on top setting:', e);
+    }
+  }
+
+  async function toggleAlwaysOnTop() {
+    try {
+      const appWindow = getCurrentWindow();
+      isAlwaysOnTop = !isAlwaysOnTop;
+      await appWindow.setAlwaysOnTop(isAlwaysOnTop);
+      await invoke('save_always_on_top', { enabled: isAlwaysOnTop });
+    } catch (e) {
+      console.error('Failed to toggle always on top:', e);
+    }
+  }
+
   // Custom keybindings
   let keybindings = {
     pause_resume: "F9",
@@ -403,6 +428,7 @@
 
   onMount(async () => {
     await loadWindowPosition(); // Restore window position
+    await loadAlwaysOnTop(); // Restore always on top setting
     initUserLocales(); // Initialize user locale files (async, don't await)
 
     // Check library size AND cache status before loading
@@ -602,11 +628,10 @@
           <aside
             class="spotify-sidebar w-56 flex flex-col p-4 gap-2 no-drag border-r border-white/5"
           >
-            <!-- Drag Handle with Mini Mode Toggle -->
+            <!-- Drag Handle with Window Controls -->
             <div
-              class="flex items-center justify-between py-2 -mx-4 -mt-4 mb-2 px-2"
+              class="flex items-center gap-1 py-2 -mx-4 -mt-4 mb-2 px-2"
             >
-              <div class="w-8"></div>
               <div
                 class="drag-handle flex-1 flex items-center justify-center cursor-move hover:bg-white/5 transition-colors group py-1 rounded"
                 title="Drag to move window"
@@ -616,13 +641,22 @@
                   class="w-6 h-6 text-white/20 group-hover:text-white/40 transition-colors"
                 />
               </div>
-              <button
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
-                onclick={toggleMiniMode}
-                title="Minimize to floating icon"
-              >
-                <Icon icon="mdi:minus" class="w-5 h-5" />
-              </button>
+              <div class="flex items-center gap-0.5">
+                <button
+                  class="w-7 h-7 flex items-center justify-center rounded-md transition-all {isAlwaysOnTop ? 'text-[#1db954] bg-[#1db954]/10' : 'text-white/40 hover:text-white hover:bg-white/10'}"
+                  onclick={toggleAlwaysOnTop}
+                  title={isAlwaysOnTop ? 'Disable always on top' : 'Enable always on top'}
+                >
+                  <Icon icon={isAlwaysOnTop ? "mdi:pin" : "mdi:pin-off"} class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  class="w-7 h-7 flex items-center justify-center rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                  onclick={toggleMiniMode}
+                  title="Minimize to floating icon"
+                >
+                  <Icon icon="mdi:minus" class="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <!-- Logo / Title -->

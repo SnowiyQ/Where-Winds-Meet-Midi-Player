@@ -89,6 +89,7 @@ If you enjoy this app and want to support development:
 - **Spotify-style interface** – Dark theme, smooth animations
 - **Easy to use** – Drag & drop your MIDI files, then click play
 - **Mini mode** – Tiny floating icon that glows while playing
+- **Always on top toggle** – Pin button to keep window above others
 - **Real-time progress** – See where you are in the song
 - **Seek support** – Click the timeline to jump to any position
 - **Song info** – Shows BPM and difficulty (Easy / Medium / Hard / Expert)

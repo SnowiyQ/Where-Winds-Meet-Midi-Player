@@ -1853,6 +1853,20 @@ async fn save_window_position(x: i32, y: i32, width: u32, height: u32) -> Result
 }
 
 #[tauri::command]
+async fn get_always_on_top() -> Result<bool, String> {
+    let config = load_config();
+    Ok(config["always_on_top"].as_bool().unwrap_or(true))
+}
+
+#[tauri::command]
+async fn save_always_on_top(enabled: bool) -> Result<(), String> {
+    let mut config = load_config();
+    config["always_on_top"] = serde_json::json!(enabled);
+    save_config(&config);
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_visualizer_notes(
     state: State<'_, Arc<Mutex<AppState>>>
 ) -> Result<Vec<VisualizerNote>, String> {
@@ -3211,6 +3225,8 @@ fn main() {
             open_file_location,
             get_window_position,
             save_window_position,
+            get_always_on_top,
+            save_always_on_top,
             check_for_update,
             download_update,
             install_update,
