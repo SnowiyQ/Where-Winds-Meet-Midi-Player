@@ -236,16 +236,15 @@ fn handle_midi_message(
 
     if is_note_on {
         // Get current settings
-        let current_note_mode = NoteMode::from(note_mode.load(Ordering::SeqCst));
         let current_key_mode = KeyMode::from(key_mode.load(Ordering::SeqCst));
         let current_octave_shift = octave_shift.load(Ordering::SeqCst) as i32;
         let current_transpose = transpose.load(Ordering::SeqCst) as i32;
 
-        // Calculate total transpose
+        // Calculate total transpose (octave shift only)
         let total_transpose = current_transpose + (current_octave_shift * 12);
 
-        // Map note to key using same logic as midi.rs
-        let key = map_note_to_key(note as i32, total_transpose, current_note_mode, current_key_mode);
+        // Live input: use direct chromatic mapping (Closest mode), bypass note_mode
+        let key = map_note_to_key(note as i32, total_transpose, NoteMode::Closest, current_key_mode);
 
         // Press the key
         keyboard::key_down(&key);
