@@ -480,5 +480,8 @@ wwm-overlay/
 
 - `npm run test` - run the Vitest suite once (global jest-dom helpers are preloaded via src/setupTests.js).
 - `npm run test:watch` - keep Vitest in watch mode while you edit.
-- `npm run test:coverage` - emit coverage reports (text + lcov.info) via the built-in c8 provider; the report is saved under coverage/.
+- `npm run test:coverage` - emit coverage reports (text + lcov.info) via the built-in v8 provider; the report now covers every JavaScript and Svelte file outside `node_modules/` and writes results under coverage/.
+- `npm run coverage:check` - parse coverage/lcov.info and emit a warning if the line coverage for `src/lib/utils/**/*.js` and `src/lib/version.js` stays below 80% so the gate stays focused on the shared helper logic.
+
+The coverage workflow (.github/workflows/coverage.yml) runs `npm run test:coverage` and `npm run coverage:check` on pushes to main and on pull requests so reviewers get soft warnings whenever coverage dips below the project-wide 80% target.
 

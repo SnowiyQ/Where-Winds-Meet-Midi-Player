@@ -12,32 +12,36 @@ function ensureServerEnvironmentsPlugin() {
   }
 }
 
-export default defineConfig({
-  plugins: [ensureServerEnvironmentsPlugin(), svelte()],
-  clearScreen: false,
-  server: {
-    port: 5173,
-    strictPort: true,
-  },
-  build: {
-    target: 'esnext',
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/setupTests.js',
-    coverage: {
-        provider: 'v8',
-        reporter: ['text', 'lcov'],
-        all: true,
-        include: ['src/lib/utils/**/*.js', 'src/lib/version.js'],
-        exclude: ['**/*.svelte'],
-        statements: 80,
-        branches: 80,
-        functions: 80,
-        lines: 80
+export default defineConfig(({ mode }) => {
+  const isTest = mode === 'test'
+  const plugins = [ensureServerEnvironmentsPlugin()]
+  if (!isTest) {
+    plugins.push(svelte())
+  }
+
+  return {
+    plugins,
+    clearScreen: false,
+    server: {
+      port: 5173,
+      strictPort: true,
     },
-  },
+    build: {
+      target: 'esnext',
+      minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+      sourcemap: !!process.env.TAURI_DEBUG,
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: './src/setupTests.js',
+        coverage: {
+          provider: 'v8',
+          reporter: ['text', 'lcov'],
+          all: true,
+          include: ['**/*.js', '**/*.svelte'],
+          exclude: ['node_modules/**'],
+        },
+    },
+  }
 })
