@@ -4,7 +4,7 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,8 @@ async fn register_peer(
     };
 
     state.peers.insert(req.peer_id, peer);
-    println!("[DISCOVERY] Peer registered: {} peers, {} songs total",
+    println!(
+        "[DISCOVERY] Peer registered: {} peers, {} songs total",
         state.peers.len(),
         state.peers.values().map(|p| p.songs.len()).sum::<usize>()
     );
@@ -88,13 +89,14 @@ async fn unregister_peer(
 ) -> StatusCode {
     let mut state = state.write().unwrap();
     state.peers.remove(&peer_id);
-    println!("[DISCOVERY] Peer unregistered, {} remaining", state.peers.len());
+    println!(
+        "[DISCOVERY] Peer unregistered, {} remaining",
+        state.peers.len()
+    );
     StatusCode::OK
 }
 
-async fn get_peers(
-    State(state): State<SharedState>,
-) -> Json<PeerListResponse> {
+async fn get_peers(State(state): State<SharedState>) -> Json<PeerListResponse> {
     let state = state.read().unwrap();
 
     let peers: Vec<PeerInfo> = state.peers.values().cloned().collect();
@@ -151,12 +153,17 @@ async fn cleanup_stale_peers(state: SharedState) {
 
         let removed = before - state.peers.len();
         if removed > 0 {
-            println!("[DISCOVERY] Cleaned up {} stale peers, {} remaining", removed, state.peers.len());
+            println!(
+                "[DISCOVERY] Cleaned up {} stale peers, {} remaining",
+                removed,
+                state.peers.len()
+            );
         }
     }
 }
 
 // Start the discovery server
+#[allow(dead_code)]
 pub async fn start_server(port: u16) -> Result<(), String> {
     let state: SharedState = Arc::new(RwLock::new(DiscoveryState::default()));
 
@@ -241,7 +248,10 @@ pub fn stop_discovery_server() -> Result<(), String> {
 }
 
 // Start the discovery server with shutdown support
-async fn start_server_with_shutdown(port: u16, shutdown_tx: broadcast::Sender<()>) -> Result<(), String> {
+async fn start_server_with_shutdown(
+    port: u16,
+    shutdown_tx: broadcast::Sender<()>,
+) -> Result<(), String> {
     let state: SharedState = Arc::new(RwLock::new(DiscoveryState::default()));
 
     // Start cleanup task

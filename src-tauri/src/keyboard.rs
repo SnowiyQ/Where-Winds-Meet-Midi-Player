@@ -1,9 +1,9 @@
 // Virtual keyboard input using PostMessage to game window
 // Sends WM_KEYDOWN/WM_KEYUP directly - doesn't affect other apps!
 
-use std::sync::atomic::{AtomicU64, AtomicIsize, AtomicBool, Ordering};
-use std::time::{Instant, Duration};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 // Configurable modifier delay in milliseconds (default 0ms = instant)
 static MODIFIER_DELAY_MS: AtomicU64 = AtomicU64::new(0);
@@ -11,8 +11,8 @@ static MODIFIER_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 // Input mode: false = PostMessage (default), true = SendInput (for cloud gaming)
 static USE_SEND_INPUT: AtomicBool = AtomicBool::new(false);
 
-use std::sync::RwLock as StdRwLock;
 use std::collections::HashMap;
+use std::sync::RwLock as StdRwLock;
 
 // Custom key bindings for each note position
 // Maps logical key (e.g., "low_0") to physical key (e.g., "z")
@@ -28,7 +28,14 @@ pub const DEFAULT_HIGH_KEYS: [&str; 7] = ["q", "w", "e", "r", "t", "y", "u"];
 /// Set input mode: true = SendInput (cloud gaming), false = PostMessage (local)
 pub fn set_send_input_mode(enabled: bool) {
     USE_SEND_INPUT.store(enabled, Ordering::SeqCst);
-    println!("[KEYBOARD] Input mode: {}", if enabled { "SendInput (cloud)" } else { "PostMessage (local)" });
+    println!(
+        "[KEYBOARD] Input mode: {}",
+        if enabled {
+            "SendInput (cloud)"
+        } else {
+            "PostMessage (local)"
+        }
+    );
 }
 
 /// Get current input mode
@@ -56,7 +63,10 @@ pub fn set_note_key_bindings(low: Vec<String>, mid: Vec<String>, high: Vec<Strin
                 bindings.insert(format!("high_{}", i), key.to_lowercase());
             }
         }
-        println!("[KEYBOARD] Custom key bindings set: low={:?}, mid={:?}, high={:?}", low, mid, high);
+        println!(
+            "[KEYBOARD] Custom key bindings set: low={:?}, mid={:?}, high={:?}",
+            low, mid, high
+        );
     }
 }
 
@@ -64,26 +74,35 @@ pub fn set_note_key_bindings(low: Vec<String>, mid: Vec<String>, high: Vec<Strin
 pub fn get_note_key_bindings() -> (Vec<String>, Vec<String>, Vec<String>) {
     let bindings = CUSTOM_KEY_BINDINGS.read().ok();
 
-    let low: Vec<String> = (0..7).map(|i| {
-        bindings.as_ref()
-            .and_then(|b| b.get(&format!("low_{}", i)))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| DEFAULT_LOW_KEYS[i].to_string())
-    }).collect();
+    let low: Vec<String> = (0..7)
+        .map(|i| {
+            bindings
+                .as_ref()
+                .and_then(|b| b.get(&format!("low_{}", i)))
+                .map(|s| s.clone())
+                .unwrap_or_else(|| DEFAULT_LOW_KEYS[i].to_string())
+        })
+        .collect();
 
-    let mid: Vec<String> = (0..7).map(|i| {
-        bindings.as_ref()
-            .and_then(|b| b.get(&format!("mid_{}", i)))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| DEFAULT_MID_KEYS[i].to_string())
-    }).collect();
+    let mid: Vec<String> = (0..7)
+        .map(|i| {
+            bindings
+                .as_ref()
+                .and_then(|b| b.get(&format!("mid_{}", i)))
+                .map(|s| s.clone())
+                .unwrap_or_else(|| DEFAULT_MID_KEYS[i].to_string())
+        })
+        .collect();
 
-    let high: Vec<String> = (0..7).map(|i| {
-        bindings.as_ref()
-            .and_then(|b| b.get(&format!("high_{}", i)))
-            .map(|s| s.clone())
-            .unwrap_or_else(|| DEFAULT_HIGH_KEYS[i].to_string())
-    }).collect();
+    let high: Vec<String> = (0..7)
+        .map(|i| {
+            bindings
+                .as_ref()
+                .and_then(|b| b.get(&format!("high_{}", i)))
+                .map(|s| s.clone())
+                .unwrap_or_else(|| DEFAULT_HIGH_KEYS[i].to_string())
+        })
+        .collect();
 
     (low, mid, high)
 }
@@ -93,14 +112,29 @@ fn get_bound_key(logical_key: &str) -> String {
     // Map the default key names to their positions
     let (octave, index) = match logical_key {
         // Low octave
-        "z" => ("low", 0), "x" => ("low", 1), "c" => ("low", 2),
-        "v" => ("low", 3), "b" => ("low", 4), "n" => ("low", 5), "m" => ("low", 6),
+        "z" => ("low", 0),
+        "x" => ("low", 1),
+        "c" => ("low", 2),
+        "v" => ("low", 3),
+        "b" => ("low", 4),
+        "n" => ("low", 5),
+        "m" => ("low", 6),
         // Mid octave
-        "a" => ("mid", 0), "s" => ("mid", 1), "d" => ("mid", 2),
-        "f" => ("mid", 3), "g" => ("mid", 4), "h" => ("mid", 5), "j" => ("mid", 6),
+        "a" => ("mid", 0),
+        "s" => ("mid", 1),
+        "d" => ("mid", 2),
+        "f" => ("mid", 3),
+        "g" => ("mid", 4),
+        "h" => ("mid", 5),
+        "j" => ("mid", 6),
         // High octave
-        "q" => ("high", 0), "w" => ("high", 1), "e" => ("high", 2),
-        "r" => ("high", 3), "t" => ("high", 4), "y" => ("high", 5), "u" => ("high", 6),
+        "q" => ("high", 0),
+        "w" => ("high", 1),
+        "e" => ("high", 2),
+        "r" => ("high", 3),
+        "t" => ("high", 4),
+        "y" => ("high", 5),
+        "u" => ("high", 6),
         // Unknown - return as-is
         _ => return logical_key.to_string(),
     };
@@ -143,30 +177,29 @@ pub fn get_modifier_delay() -> u64 {
 }
 
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows,
-    GetForegroundWindow,
-    GetWindowTextW,
-    SetForegroundWindow,
-    ShowWindow,
-    PostMessageW,
-    SW_RESTORE,
-    WM_KEYDOWN,
-    WM_KEYUP,
-};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
-    MapVirtualKeyW, MAPVK_VK_TO_VSC,
+    MapVirtualKeyW, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+    KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
-
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetForegroundWindow, GetWindowTextW, PostMessageW, SetForegroundWindow,
+    ShowWindow, SW_RESTORE, WM_KEYDOWN, WM_KEYUP,
+};
 
 #[cfg(target_os = "windows")]
-const TARGET_WINDOW_KEYWORDS: [&str; 8] =
-    ["where winds meet", "wwm", "wwm.exe", "연운", "燕云十六声", "geforce now", "geforcenow", "nvidia geforce"];
+const TARGET_WINDOW_KEYWORDS: [&str; 8] = [
+    "where winds meet",
+    "wwm",
+    "wwm.exe",
+    "연운",
+    "燕云十六声",
+    "geforce now",
+    "geforcenow",
+    "nvidia geforce",
+];
 
 // Custom window keywords added by user
 use std::sync::RwLock;
@@ -179,7 +212,10 @@ pub fn set_custom_window_keywords(keywords: Vec<String>) {
 }
 
 pub fn get_custom_window_keywords() -> Vec<String> {
-    CUSTOM_WINDOW_KEYWORDS.read().map(|g| g.clone()).unwrap_or_default()
+    CUSTOM_WINDOW_KEYWORDS
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(target_os = "windows")]
@@ -227,7 +263,10 @@ fn matches_target_window(hwnd: HWND, log: bool) -> bool {
         .find(|keyword| title_string.contains(*keyword));
     if let Some(keyword) = matched_keyword {
         if log {
-            println!("[WINDOW] Found matching window: '{}' (matched: '{}') hwnd={:?}", title_string, keyword, hwnd.0);
+            println!(
+                "[WINDOW] Found matching window: '{}' (matched: '{}') hwnd={:?}",
+                title_string, keyword, hwnd.0
+            );
         }
         return true;
     }
@@ -237,7 +276,10 @@ fn matches_target_window(hwnd: HWND, log: bool) -> bool {
         for keyword in custom.iter() {
             if !keyword.is_empty() && title_string.contains(&keyword.to_lowercase()) {
                 if log {
-                    println!("[WINDOW] Found matching window: '{}' (custom: '{}') hwnd={:?}", title_string, keyword, hwnd.0);
+                    println!(
+                        "[WINDOW] Found matching window: '{}' (custom: '{}') hwnd={:?}",
+                        title_string, keyword, hwnd.0
+                    );
                 }
                 return true;
             }
@@ -283,7 +325,10 @@ fn find_game_window() -> Option<HWND> {
     // Search for window
     unsafe {
         let mut data = EnumData { target: None };
-        let _ = EnumWindows(Some(enum_windows_proc), LPARAM(&mut data as *mut _ as isize));
+        let _ = EnumWindows(
+            Some(enum_windows_proc),
+            LPARAM(&mut data as *mut _ as isize),
+        );
 
         if let Some(hwnd) = data.target {
             // Cache the result
@@ -301,6 +346,7 @@ fn find_game_window() -> Option<HWND> {
 }
 
 /// Clear the cached window handle (call when starting new playback)
+#[allow(dead_code)]
 pub fn clear_window_cache() {
     CACHED_HWND.store(0, Ordering::SeqCst);
     if let Ok(mut last_check) = LAST_WINDOW_CHECK.lock() {
@@ -353,17 +399,43 @@ fn parse_key(key: &str) -> Option<(u32, Modifier)> {
 fn char_to_vk(key: &str) -> Option<u32> {
     match key {
         // Letters A-Z (VK codes 0x41-0x5A)
-        "a" => Some(0x41), "b" => Some(0x42), "c" => Some(0x43), "d" => Some(0x44),
-        "e" => Some(0x45), "f" => Some(0x46), "g" => Some(0x47), "h" => Some(0x48),
-        "i" => Some(0x49), "j" => Some(0x4A), "k" => Some(0x4B), "l" => Some(0x4C),
-        "m" => Some(0x4D), "n" => Some(0x4E), "o" => Some(0x4F), "p" => Some(0x50),
-        "q" => Some(0x51), "r" => Some(0x52), "s" => Some(0x53), "t" => Some(0x54),
-        "u" => Some(0x55), "v" => Some(0x56), "w" => Some(0x57), "x" => Some(0x58),
-        "y" => Some(0x59), "z" => Some(0x5A),
+        "a" => Some(0x41),
+        "b" => Some(0x42),
+        "c" => Some(0x43),
+        "d" => Some(0x44),
+        "e" => Some(0x45),
+        "f" => Some(0x46),
+        "g" => Some(0x47),
+        "h" => Some(0x48),
+        "i" => Some(0x49),
+        "j" => Some(0x4A),
+        "k" => Some(0x4B),
+        "l" => Some(0x4C),
+        "m" => Some(0x4D),
+        "n" => Some(0x4E),
+        "o" => Some(0x4F),
+        "p" => Some(0x50),
+        "q" => Some(0x51),
+        "r" => Some(0x52),
+        "s" => Some(0x53),
+        "t" => Some(0x54),
+        "u" => Some(0x55),
+        "v" => Some(0x56),
+        "w" => Some(0x57),
+        "x" => Some(0x58),
+        "y" => Some(0x59),
+        "z" => Some(0x5A),
         // Numbers 0-9 (VK codes 0x30-0x39)
-        "0" => Some(0x30), "1" => Some(0x31), "2" => Some(0x32), "3" => Some(0x33),
-        "4" => Some(0x34), "5" => Some(0x35), "6" => Some(0x36), "7" => Some(0x37),
-        "8" => Some(0x38), "9" => Some(0x39),
+        "0" => Some(0x30),
+        "1" => Some(0x31),
+        "2" => Some(0x32),
+        "3" => Some(0x33),
+        "4" => Some(0x34),
+        "5" => Some(0x35),
+        "6" => Some(0x36),
+        "7" => Some(0x37),
+        "8" => Some(0x38),
+        "9" => Some(0x39),
         // Common punctuation
         ";" | "semicolon" => Some(0xBA),
         "," | "comma" => Some(0xBC),
@@ -464,7 +536,9 @@ fn send_input_combo_down(mod_vk: u32, key_vk: u32) {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(mod_vk as u16),
+                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(
+                            mod_vk as u16,
+                        ),
                         wScan: mod_scan,
                         dwFlags: KEYEVENTF_SCANCODE,
                         time: 0,
@@ -476,7 +550,9 @@ fn send_input_combo_down(mod_vk: u32, key_vk: u32) {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(key_vk as u16),
+                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(
+                            key_vk as u16,
+                        ),
                         wScan: key_scan,
                         dwFlags: KEYEVENTF_SCANCODE,
                         time: 0,
@@ -501,7 +577,9 @@ fn send_input_combo_up(key_vk: u32, mod_vk: u32) {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(key_vk as u16),
+                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(
+                            key_vk as u16,
+                        ),
                         wScan: key_scan,
                         dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                         time: 0,
@@ -513,7 +591,9 @@ fn send_input_combo_up(key_vk: u32, mod_vk: u32) {
                 r#type: INPUT_KEYBOARD,
                 Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
                     ki: KEYBDINPUT {
-                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(mod_vk as u16),
+                        wVk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY(
+                            mod_vk as u16,
+                        ),
                         wScan: mod_scan,
                         dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                         time: 0,
@@ -614,6 +694,7 @@ pub fn reset_modifier_counts() {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 pub fn clear_window_cache() {
     // Non-Windows: no-op
 }
@@ -702,13 +783,16 @@ pub fn is_wwm_focused() -> Result<bool, String> {
 pub fn focus_black_desert_window() -> Result<(), String> {
     unsafe {
         let mut data = EnumData { target: None };
-        EnumWindows(Some(enum_windows_proc), LPARAM(&mut data as *mut _ as isize))
-            .map_err(|e| e.to_string())?;
+        EnumWindows(
+            Some(enum_windows_proc),
+            LPARAM(&mut data as *mut _ as isize),
+        )
+        .map_err(|e| e.to_string())?;
 
         if let Some(hwnd) = data.target {
-            ShowWindow(hwnd, SW_RESTORE);
+            let _ = ShowWindow(hwnd, SW_RESTORE);
             std::thread::sleep(std::time::Duration::from_millis(50));
-            SetForegroundWindow(hwnd);
+            let _ = SetForegroundWindow(hwnd);
             std::thread::sleep(std::time::Duration::from_millis(100));
             Ok(())
         } else {

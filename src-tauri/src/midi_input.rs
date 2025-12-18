@@ -6,14 +6,14 @@
 //! - Bluetooth MIDI (if OS exposes as standard MIDI port)
 //! - Virtual MIDI ports (loopMIDI, IAC Driver, etc.)
 
-use midir::{MidiInput, MidiInputConnection, Ignore};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicI8, Ordering};
+use midir::{MidiInput, MidiInputConnection};
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
-use serde::{Serialize, Deserialize};
 
-use crate::midi::{NoteMode, KeyMode};
 use crate::keyboard;
+use crate::midi::{KeyMode, NoteMode};
 
 /// Connection state for the frontend
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,10 +68,12 @@ impl MidiInputState {
         self.state
     }
 
+    #[allow(dead_code)]
     pub fn get_available_ports(&self) -> &[String] {
         &self.available_ports
     }
 
+    #[allow(dead_code)]
     pub fn get_selected_port(&self) -> Option<usize> {
         self.selected_port
     }
@@ -116,7 +118,9 @@ pub fn start_listening(
     transpose: Arc<AtomicI8>,
     is_listening: Arc<AtomicBool>,
 ) -> Result<String, String> {
-    let mut state = midi_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut state = midi_state
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
 
     // Stop any existing connection
     if state.connection.is_some() {
@@ -152,31 +156,35 @@ pub fn start_listening(
     let octave_shift_clone = octave_shift.clone();
     let transpose_clone = transpose.clone();
     let is_listening_clone = is_listening.clone();
-    let midi_state_clone = midi_state.clone();
+    let _midi_state_clone = midi_state.clone();
 
     // Create the connection with callback
-    let connection = midi_in.connect(
-        port,
-        "wwm-live-input",
-        move |_timestamp, message, _| {
-            if !is_listening_clone.load(Ordering::SeqCst) {
-                return;
-            }
+    let connection = midi_in
+        .connect(
+            port,
+            "wwm-live-input",
+            move |_timestamp, message, _| {
+                if !is_listening_clone.load(Ordering::SeqCst) {
+                    return;
+                }
 
-            handle_midi_message(
-                message,
-                &app_handle_clone,
-                &note_mode_clone,
-                &key_mode_clone,
-                &octave_shift_clone,
-                &transpose_clone,
-            );
-        },
-        (),
-    ).map_err(|e| format!("Failed to connect to MIDI device: {}", e))?;
+                handle_midi_message(
+                    message,
+                    &app_handle_clone,
+                    &note_mode_clone,
+                    &key_mode_clone,
+                    &octave_shift_clone,
+                    &transpose_clone,
+                );
+            },
+            (),
+        )
+        .map_err(|e| format!("Failed to connect to MIDI device: {}", e))?;
 
     // Update state
-    let mut state = midi_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut state = midi_state
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     state.connection = Some(connection);
     state.state = MidiConnectionState::Connected;
     is_listening.store(true, Ordering::SeqCst);
@@ -195,7 +203,9 @@ pub fn stop_listening(
 ) -> Result<(), String> {
     is_listening.store(false, Ordering::SeqCst);
 
-    let mut state = midi_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut state = midi_state
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
 
     // Drop the connection (this closes it)
     state.connection = None;
@@ -214,7 +224,7 @@ pub fn stop_listening(
 fn handle_midi_message(
     message: &[u8],
     app_handle: &AppHandle,
-    note_mode: &Arc<AtomicU8>,
+    _note_mode: &Arc<AtomicU8>,
     key_mode: &Arc<AtomicU8>,
     octave_shift: &Arc<AtomicI8>,
     transpose: &Arc<AtomicI8>,
@@ -232,7 +242,7 @@ fn handle_midi_message(
     let is_note_on = (status & 0xF0) == 0x90 && velocity > 0;
 
     // Check for Note Off (0x80-0x8F) or Note On with velocity 0
-    let is_note_off = (status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0);
+    let _is_note_off = (status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0);
 
     if is_note_on {
         // Get current settings
@@ -244,7 +254,12 @@ fn handle_midi_message(
         let total_transpose = current_transpose + (current_octave_shift * 12);
 
         // Live input: use direct chromatic mapping (Closest mode), bypass note_mode
-        let key = map_note_to_key(note as i32, total_transpose, NoteMode::Closest, current_key_mode);
+        let key = map_note_to_key(
+            note as i32,
+            total_transpose,
+            NoteMode::Closest,
+            current_key_mode,
+        );
 
         // Press the key
         keyboard::key_down(&key);
@@ -273,21 +288,24 @@ fn handle_midi_message(
 }
 
 /// Map MIDI note to game key (same logic as midi.rs)
-pub fn map_note_to_key(note: i32, transpose: i32, note_mode: NoteMode, key_mode: KeyMode) -> String {
+pub fn map_note_to_key(
+    note: i32,
+    transpose: i32,
+    note_mode: NoteMode,
+    key_mode: KeyMode,
+) -> String {
     match key_mode {
-        KeyMode::Keys36 => {
-            match note_mode {
-                NoteMode::Closest => note_to_key_36_closest(note, transpose),
-                NoteMode::Quantize => note_to_key_36_quantize(note, transpose),
-                NoteMode::TransposeOnly => note_to_key_36_transpose(note, transpose),
-                NoteMode::Pentatonic => note_to_key_36_pentatonic(note, transpose),
-                NoteMode::Chromatic => note_to_key_36_chromatic(note, transpose),
-                NoteMode::Raw => note_to_key_36_raw(note),
-                NoteMode::Python => note_to_key_python(note, transpose),
-                NoteMode::Wide => note_to_key_36_wide(note, transpose),
-                NoteMode::Sharps => note_to_key_36_sharps(note, transpose),
-            }
-        }
+        KeyMode::Keys36 => match note_mode {
+            NoteMode::Closest => note_to_key_36_closest(note, transpose),
+            NoteMode::Quantize => note_to_key_36_quantize(note, transpose),
+            NoteMode::TransposeOnly => note_to_key_36_transpose(note, transpose),
+            NoteMode::Pentatonic => note_to_key_36_pentatonic(note, transpose),
+            NoteMode::Chromatic => note_to_key_36_chromatic(note, transpose),
+            NoteMode::Raw => note_to_key_36_raw(note),
+            NoteMode::Python => note_to_key_python(note, transpose),
+            NoteMode::Wide => note_to_key_36_wide(note, transpose),
+            NoteMode::Sharps => note_to_key_36_sharps(note, transpose),
+        },
         KeyMode::Keys21 => {
             match note_mode {
                 NoteMode::Closest => note_to_key(note, transpose),
@@ -306,7 +324,9 @@ pub fn map_note_to_key(note: i32, transpose: i32, note_mode: NoteMode, key_mode:
 
 /// Convert MIDI note number to note name (e.g., 60 -> "C4")
 fn midi_note_to_name(note: u8) -> String {
-    const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const NOTE_NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
     let octave = (note as i32 / 12) - 1;
     let note_idx = (note % 12) as usize;
     format!("{}{}", NOTE_NAMES[note_idx], octave)
@@ -323,19 +343,23 @@ const MID_KEYS: [&str; 7] = ["a", "s", "d", "f", "g", "h", "j"];
 const HIGH_KEYS: [&str; 7] = ["q", "w", "e", "r", "t", "y", "u"];
 
 const INSTRUMENT_NOTES: [i32; 21] = [
-    48, 50, 52, 53, 55, 57, 59,  // LOW_SCALE
-    60, 62, 64, 65, 67, 69, 71,  // MID_SCALE
-    72, 74, 76, 77, 79, 81, 83,  // HIGH_SCALE
+    48, 50, 52, 53, 55, 57, 59, // LOW_SCALE
+    60, 62, 64, 65, 67, 69, 71, // MID_SCALE
+    72, 74, 76, 77, 79, 81, 83, // HIGH_SCALE
 ];
 
 /// Normalize note into the instrument range (48-83)
 fn normalize_into_range(note: i32) -> i32 {
-    let lo = INSTRUMENT_NOTES[0];   // 48
-    let hi = INSTRUMENT_NOTES[20];  // 83
+    let lo = INSTRUMENT_NOTES[0]; // 48
+    let hi = INSTRUMENT_NOTES[20]; // 83
 
     let mut target = note;
-    while target < lo { target += 12; }
-    while target > hi { target -= 12; }
+    while target < lo {
+        target += 12;
+    }
+    while target > hi {
+        target -= 12;
+    }
     target
 }
 
@@ -353,7 +377,12 @@ fn note_to_key(note: i32, transpose: i32) -> String {
         }
     }
 
-    let all_keys = [LOW_KEYS.as_slice(), MID_KEYS.as_slice(), HIGH_KEYS.as_slice()].concat();
+    let all_keys = [
+        LOW_KEYS.as_slice(),
+        MID_KEYS.as_slice(),
+        HIGH_KEYS.as_slice(),
+    ]
+    .concat();
     all_keys[best_idx].to_string()
 }
 
@@ -366,8 +395,18 @@ fn note_to_key_transpose(note: i32, transpose: i32) -> String {
     let semitone = ((target % 12) + 12) % 12;
 
     let key_idx = match semitone {
-        0 => 0, 1 => 0, 2 => 1, 3 => 1, 4 => 2, 5 => 3,
-        6 => 3, 7 => 4, 8 => 4, 9 => 5, 10 => 5, 11 => 6,
+        0 => 0,
+        1 => 0,
+        2 => 1,
+        3 => 1,
+        4 => 2,
+        5 => 3,
+        6 => 3,
+        7 => 4,
+        8 => 4,
+        9 => 5,
+        10 => 5,
+        11 => 6,
         _ => 0,
     };
 
@@ -409,8 +448,18 @@ fn note_to_key_chromatic(note: i32, transpose: i32) -> String {
     let octave = ((normalized - 48) / 12).clamp(0, 2) as usize;
 
     let key_idx = match semitone {
-        0 => 0, 1 => 0, 2 => 1, 3 => 2, 4 => 2, 5 => 3,
-        6 => 3, 7 => 4, 8 => 4, 9 => 5, 10 => 6, 11 => 6,
+        0 => 0,
+        1 => 0,
+        2 => 1,
+        3 => 2,
+        4 => 2,
+        5 => 3,
+        6 => 3,
+        7 => 4,
+        8 => 4,
+        9 => 5,
+        10 => 6,
+        11 => 6,
         _ => 0,
     };
 
@@ -423,29 +472,35 @@ fn note_to_key_chromatic(note: i32, transpose: i32) -> String {
 
 fn note_to_key_raw(note: i32) -> String {
     let key_idx = ((note % 21) + 21) % 21;
-    let all_keys = [LOW_KEYS.as_slice(), MID_KEYS.as_slice(), HIGH_KEYS.as_slice()].concat();
+    let all_keys = [
+        LOW_KEYS.as_slice(),
+        MID_KEYS.as_slice(),
+        HIGH_KEYS.as_slice(),
+    ]
+    .concat();
     all_keys[key_idx as usize].to_string()
 }
 
 fn note_to_key_python(note: i32, transpose: i32) -> String {
     const PY_INSTRUMENT_NOTES: [i32; 21] = [
-        48, 50, 52, 53, 55, 57, 59,
-        60, 62, 64, 65, 67, 69, 71,
-        72, 74, 76, 77, 79, 81, 83,
+        48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83,
     ];
 
     const PY_KEYS: [&str; 21] = [
-        "z", "x", "c", "v", "b", "n", "m",
-        "a", "s", "d", "f", "g", "h", "j",
-        "q", "w", "e", "r", "t", "y", "u",
+        "z", "x", "c", "v", "b", "n", "m", "a", "s", "d", "f", "g", "h", "j", "q", "w", "e", "r",
+        "t", "y", "u",
     ];
 
     let lo = PY_INSTRUMENT_NOTES[0];
     let hi = PY_INSTRUMENT_NOTES[20];
 
     let mut target = note + transpose;
-    while target < lo { target += 12; }
-    while target > hi { target -= 12; }
+    while target < lo {
+        target += 12;
+    }
+    while target > hi {
+        target -= 12;
+    }
 
     let mut best_idx: usize = 0;
     let mut best_dist = (PY_INSTRUMENT_NOTES[0] - target).abs();
@@ -464,31 +519,100 @@ fn note_to_key_python(note: i32, transpose: i32) -> String {
 fn note_to_key_wide(note: i32, transpose: i32) -> String {
     let target = note + transpose;
     let key_idx = ((target - 36) * 21 / 60).clamp(0, 20) as usize;
-    let all_keys = [LOW_KEYS.as_slice(), MID_KEYS.as_slice(), HIGH_KEYS.as_slice()].concat();
+    let all_keys = [
+        LOW_KEYS.as_slice(),
+        MID_KEYS.as_slice(),
+        HIGH_KEYS.as_slice(),
+    ]
+    .concat();
     all_keys[key_idx].to_string()
 }
 
 // 36-key mode functions
 fn get_octave_36(target: i32) -> usize {
-    if target < 60 { 0 }
-    else if target < 72 { 1 }
-    else { 2 }
+    if target < 60 {
+        0
+    } else if target < 72 {
+        1
+    } else {
+        2
+    }
 }
 
 fn semitone_to_key_36(semitone: i32, octave: usize) -> String {
     match semitone {
-        0 => match octave { 0 => "z", 1 => "a", _ => "q" }.to_string(),
-        2 => match octave { 0 => "x", 1 => "s", _ => "w" }.to_string(),
-        4 => match octave { 0 => "c", 1 => "d", _ => "e" }.to_string(),
-        5 => match octave { 0 => "v", 1 => "f", _ => "r" }.to_string(),
-        7 => match octave { 0 => "b", 1 => "g", _ => "t" }.to_string(),
-        9 => match octave { 0 => "n", 1 => "h", _ => "y" }.to_string(),
-        11 => match octave { 0 => "m", 1 => "j", _ => "u" }.to_string(),
-        1 => match octave { 0 => "shift+z", 1 => "shift+a", _ => "shift+q" }.to_string(),
-        3 => match octave { 0 => "ctrl+c", 1 => "ctrl+d", _ => "ctrl+e" }.to_string(),
-        6 => match octave { 0 => "shift+v", 1 => "shift+f", _ => "shift+r" }.to_string(),
-        8 => match octave { 0 => "shift+b", 1 => "shift+g", _ => "shift+t" }.to_string(),
-        10 => match octave { 0 => "ctrl+m", 1 => "ctrl+j", _ => "ctrl+u" }.to_string(),
+        0 => match octave {
+            0 => "z",
+            1 => "a",
+            _ => "q",
+        }
+        .to_string(),
+        2 => match octave {
+            0 => "x",
+            1 => "s",
+            _ => "w",
+        }
+        .to_string(),
+        4 => match octave {
+            0 => "c",
+            1 => "d",
+            _ => "e",
+        }
+        .to_string(),
+        5 => match octave {
+            0 => "v",
+            1 => "f",
+            _ => "r",
+        }
+        .to_string(),
+        7 => match octave {
+            0 => "b",
+            1 => "g",
+            _ => "t",
+        }
+        .to_string(),
+        9 => match octave {
+            0 => "n",
+            1 => "h",
+            _ => "y",
+        }
+        .to_string(),
+        11 => match octave {
+            0 => "m",
+            1 => "j",
+            _ => "u",
+        }
+        .to_string(),
+        1 => match octave {
+            0 => "shift+z",
+            1 => "shift+a",
+            _ => "shift+q",
+        }
+        .to_string(),
+        3 => match octave {
+            0 => "ctrl+c",
+            1 => "ctrl+d",
+            _ => "ctrl+e",
+        }
+        .to_string(),
+        6 => match octave {
+            0 => "shift+v",
+            1 => "shift+f",
+            _ => "shift+r",
+        }
+        .to_string(),
+        8 => match octave {
+            0 => "shift+b",
+            1 => "shift+g",
+            _ => "shift+t",
+        }
+        .to_string(),
+        10 => match octave {
+            0 => "ctrl+m",
+            1 => "ctrl+j",
+            _ => "ctrl+u",
+        }
+        .to_string(),
         _ => "a".to_string(),
     }
 }
@@ -506,8 +630,14 @@ fn note_to_key_36_quantize(note: i32, transpose: i32) -> String {
     let octave = get_octave_36(target);
 
     let quantized = match semitone {
-        0 | 1 => 0, 2 | 3 => 2, 4 => 4, 5 | 6 => 5,
-        7 | 8 => 7, 9 | 10 => 9, 11 => 11, _ => 0,
+        0 | 1 => 0,
+        2 | 3 => 2,
+        4 => 4,
+        5 | 6 => 5,
+        7 | 8 => 7,
+        9 | 10 => 9,
+        11 => 11,
+        _ => 0,
     };
 
     semitone_to_key_36(quantized, octave)
@@ -526,8 +656,12 @@ fn note_to_key_36_pentatonic(note: i32, transpose: i32) -> String {
     let octave = get_octave_36(target);
 
     let penta = match semitone {
-        0 | 1 => 0, 2 | 3 => 2, 4 | 5 | 6 => 4,
-        7 | 8 => 7, 9 | 10 | 11 => 9, _ => 0,
+        0 | 1 => 0,
+        2 | 3 => 2,
+        4 | 5 | 6 => 4,
+        7 | 8 => 7,
+        9 | 10 | 11 => 9,
+        _ => 0,
     };
 
     semitone_to_key_36(penta, octave)
@@ -547,7 +681,13 @@ fn note_to_key_36_raw(note: i32) -> String {
 fn note_to_key_36_wide(note: i32, transpose: i32) -> String {
     let target = note + transpose;
     let semitone = ((target % 12) + 12) % 12;
-    let octave = if target < 54 { 0 } else if target < 66 { 1 } else { 2 };
+    let octave = if target < 54 {
+        0
+    } else if target < 66 {
+        1
+    } else {
+        2
+    };
     semitone_to_key_36(semitone, octave)
 }
 

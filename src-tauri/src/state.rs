@@ -1,19 +1,19 @@
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU16, AtomicU8, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicI8, AtomicU16, Ordering};
 use std::time::Instant;
 use tauri::Window;
-use serde::{Serialize, Deserialize};
 
-use crate::midi::{NoteMode, KeyMode, EventType, BandFilter};
-use crate::midi_input::{MidiInputState, MidiConnectionState};
+use crate::midi::{BandFilter, EventType, KeyMode, NoteMode};
+use crate::midi_input::MidiInputState;
 
 /// Note event for visualizer (simplified for frontend)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VisualizerNote {
-    pub time_ms: u64,      // Start time in ms
-    pub duration_ms: u64,  // Duration in ms
-    pub note: u8,          // MIDI note number
-    pub key_index: u8,     // Key index (0-20 for 21 keys)
+    pub time_ms: u64,     // Start time in ms
+    pub duration_ms: u64, // Duration in ms
+    pub note: u8,         // MIDI note number
+    pub key_index: u8,    // Key index (0-20 for 21 keys)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ pub struct AppState {
     // Live MIDI input state
     pub midi_input_state: Arc<std::sync::Mutex<MidiInputState>>,
     pub is_live_mode_active: Arc<AtomicBool>,
-    pub live_transpose: Arc<AtomicI8>,  // Separate transpose for live mode
+    pub live_transpose: Arc<AtomicI8>, // Separate transpose for live mode
 }
 
 impl AppState {
@@ -102,12 +102,22 @@ impl AppState {
     }
 
     pub fn set_live_transpose(&self, value: i8) {
-        self.live_transpose.store(value.clamp(-12, 12), Ordering::SeqCst);
+        self.live_transpose
+            .store(value.clamp(-12, 12), Ordering::SeqCst);
     }
 
-    pub fn set_band_filter(&mut self, mode: String, slot: usize, total_players: usize, track_id: Option<usize>) {
+    pub fn set_band_filter(
+        &mut self,
+        mode: String,
+        slot: usize,
+        total_players: usize,
+        track_id: Option<usize>,
+    ) {
         let filter = if mode == "split" {
-            Some(BandFilter::Split { slot, total_players })
+            Some(BandFilter::Split {
+                slot,
+                total_players,
+            })
         } else if mode == "track" {
             track_id.map(|id| BandFilter::Track { track_id: id })
         } else {
@@ -116,6 +126,7 @@ impl AppState {
         *self.band_filter.lock().unwrap() = filter;
     }
 
+    #[allow(dead_code)]
     pub fn clear_band_filter(&mut self) {
         *self.band_filter.lock().unwrap() = None;
     }
@@ -167,7 +178,7 @@ impl AppState {
                     current_position,
                     seek_offset,
                     band_filter,
-                    window
+                    window,
                 );
             });
 
@@ -320,8 +331,8 @@ impl AppState {
         let mut filtered: Vec<VisualizerNote> = Vec::new();
         for note in notes {
             let dominated = filtered.iter().any(|existing| {
-                existing.key_index == note.key_index &&
-                (note.time_ms as i64 - existing.time_ms as i64).abs() < 10
+                existing.key_index == note.key_index
+                    && (note.time_ms as i64 - existing.time_ms as i64).abs() < 10
             });
             if !dominated {
                 filtered.push(note);
@@ -334,17 +345,19 @@ impl AppState {
     /// Map MIDI note to key index (0-20)
     fn note_to_key_index(note: i32, transpose: i32) -> u8 {
         const INSTRUMENT_NOTES: [i32; 21] = [
-            48, 50, 52, 53, 55, 57, 59,
-            60, 62, 64, 65, 67, 69, 71,
-            72, 74, 76, 77, 79, 81, 83,
+            48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83,
         ];
 
         // Normalize into range
         let lo = INSTRUMENT_NOTES[0];
         let hi = INSTRUMENT_NOTES[20];
         let mut target = note + transpose;
-        while target < lo { target += 12; }
-        while target > hi { target -= 12; }
+        while target < lo {
+            target += 12;
+        }
+        while target > hi {
+            target -= 12;
+        }
 
         // Find closest key
         let mut best_idx: u8 = 0;

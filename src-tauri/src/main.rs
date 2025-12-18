@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::{Arc, Mutex};
+use log::info;
 use rayon::prelude::*;
-use log::{info, warn, error};
-use simplelog::{WriteLogger, CombinedLogger, TermLogger, LevelFilter, Config, ConfigBuilder, TerminalMode, ColorChoice};
+use simplelog::{Config, ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs::File;
+use std::sync::{Arc, Mutex};
 
 /// Log macro that prints to console AND logs to file
 #[macro_export]
@@ -29,27 +29,23 @@ fn init_logger() {
         .and_then(|p| p.parent().map(|d| d.join("wwm-overlay.log")))
         .unwrap_or_else(|| std::path::PathBuf::from("wwm-overlay.log"));
 
-    let config = ConfigBuilder::new()
-        .set_time_format_rfc3339()
-        .build();
+    let config = ConfigBuilder::new().set_time_format_rfc3339().build();
 
     if let Ok(file) = File::create(&log_path) {
         let _ = WriteLogger::init(LevelFilter::Info, config, file);
         info!("=== WWM Overlay Started ===");
     }
 }
+use serde::{Deserialize, Serialize};
 use std::thread;
 use tauri::{AppHandle, Emitter, State, Window};
-use serde::{Serialize, Deserialize};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, MOD_NOREPEAT, VK_END, VK_F9, VK_F10, VK_F11, VK_F12,
-};
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetMessageW, SetWindowsHookExW, CallNextHookEx, TranslateMessage, DispatchMessageW,
-    MSG, WM_HOTKEY, WM_KEYDOWN, WM_SYSKEYDOWN, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL,
-};
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass, HIGH_PRIORITY_CLASS};
+use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_NOREPEAT, VK_END};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage, HHOOK,
+    KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_SYSKEYDOWN,
+};
 
 // Global app handle for low-level hook callback
 static mut GLOBAL_APP_HANDLE: Option<AppHandle> = None;
@@ -61,13 +57,13 @@ static ALBUM_PATH: RwLock<Option<String>> = RwLock::new(None);
 // Keybindings configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindings {
-    pub pause_resume: String,  // Default: "ScrollLock"
-    pub stop: String,          // Default: "F12"
-    pub previous: String,      // Default: "F10"
-    pub next: String,          // Default: "F11"
-    pub mode_prev: String,     // Default: "["
-    pub mode_next: String,     // Default: "]"
-    pub toggle_mini: String,   // Default: "Insert"
+    pub pause_resume: String, // Default: "ScrollLock"
+    pub stop: String,         // Default: "F12"
+    pub previous: String,     // Default: "F10"
+    pub next: String,         // Default: "F11"
+    pub mode_prev: String,    // Default: "["
+    pub mode_next: String,    // Default: "]"
+    pub toggle_mini: String,  // Default: "Insert"
 }
 
 impl Default for KeyBindings {
@@ -117,9 +113,18 @@ fn key_to_vk(key: &str) -> Option<u32> {
     let upper = key.to_uppercase();
     match upper.as_str() {
         // Function keys
-        "F1" => Some(0x70), "F2" => Some(0x71), "F3" => Some(0x72), "F4" => Some(0x73),
-        "F5" => Some(0x74), "F6" => Some(0x75), "F7" => Some(0x76), "F8" => Some(0x77),
-        "F9" => Some(0x78), "F10" => Some(0x79), "F11" => Some(0x7A), "F12" => Some(0x7B),
+        "F1" => Some(0x70),
+        "F2" => Some(0x71),
+        "F3" => Some(0x72),
+        "F4" => Some(0x73),
+        "F5" => Some(0x74),
+        "F6" => Some(0x75),
+        "F7" => Some(0x76),
+        "F8" => Some(0x77),
+        "F9" => Some(0x78),
+        "F10" => Some(0x79),
+        "F11" => Some(0x7A),
+        "F12" => Some(0x7B),
         // Special keys
         "INSERT" | "INS" => Some(0x2D),
         "DELETE" | "DEL" => Some(0x2E),
@@ -149,24 +154,58 @@ fn key_to_vk(key: &str) -> Option<u32> {
         "." | "OEM_PERIOD" => Some(0xBE),
         "/" | "OEM_2" => Some(0xBF),
         // Letters A-Z (VK codes 0x41-0x5A)
-        "A" => Some(0x41), "B" => Some(0x42), "C" => Some(0x43), "D" => Some(0x44),
-        "E" => Some(0x45), "F" => Some(0x46), "G" => Some(0x47), "H" => Some(0x48),
-        "I" => Some(0x49), "J" => Some(0x4A), "K" => Some(0x4B), "L" => Some(0x4C),
-        "M" => Some(0x4D), "N" => Some(0x4E), "O" => Some(0x4F), "P" => Some(0x50),
-        "Q" => Some(0x51), "R" => Some(0x52), "S" => Some(0x53), "T" => Some(0x54),
-        "U" => Some(0x55), "V" => Some(0x56), "W" => Some(0x57), "X" => Some(0x58),
-        "Y" => Some(0x59), "Z" => Some(0x5A),
+        "A" => Some(0x41),
+        "B" => Some(0x42),
+        "C" => Some(0x43),
+        "D" => Some(0x44),
+        "E" => Some(0x45),
+        "F" => Some(0x46),
+        "G" => Some(0x47),
+        "H" => Some(0x48),
+        "I" => Some(0x49),
+        "J" => Some(0x4A),
+        "K" => Some(0x4B),
+        "L" => Some(0x4C),
+        "M" => Some(0x4D),
+        "N" => Some(0x4E),
+        "O" => Some(0x4F),
+        "P" => Some(0x50),
+        "Q" => Some(0x51),
+        "R" => Some(0x52),
+        "S" => Some(0x53),
+        "T" => Some(0x54),
+        "U" => Some(0x55),
+        "V" => Some(0x56),
+        "W" => Some(0x57),
+        "X" => Some(0x58),
+        "Y" => Some(0x59),
+        "Z" => Some(0x5A),
         // Numbers 0-9 (VK codes 0x30-0x39)
-        "0" => Some(0x30), "1" => Some(0x31), "2" => Some(0x32), "3" => Some(0x33),
-        "4" => Some(0x34), "5" => Some(0x35), "6" => Some(0x36), "7" => Some(0x37),
-        "8" => Some(0x38), "9" => Some(0x39),
+        "0" => Some(0x30),
+        "1" => Some(0x31),
+        "2" => Some(0x32),
+        "3" => Some(0x33),
+        "4" => Some(0x34),
+        "5" => Some(0x35),
+        "6" => Some(0x36),
+        "7" => Some(0x37),
+        "8" => Some(0x38),
+        "9" => Some(0x39),
         // Numpad keys
-        "NUMPAD0" => Some(0x60), "NUMPAD1" => Some(0x61), "NUMPAD2" => Some(0x62),
-        "NUMPAD3" => Some(0x63), "NUMPAD4" => Some(0x64), "NUMPAD5" => Some(0x65),
-        "NUMPAD6" => Some(0x66), "NUMPAD7" => Some(0x67), "NUMPAD8" => Some(0x68),
+        "NUMPAD0" => Some(0x60),
+        "NUMPAD1" => Some(0x61),
+        "NUMPAD2" => Some(0x62),
+        "NUMPAD3" => Some(0x63),
+        "NUMPAD4" => Some(0x64),
+        "NUMPAD5" => Some(0x65),
+        "NUMPAD6" => Some(0x66),
+        "NUMPAD7" => Some(0x67),
+        "NUMPAD8" => Some(0x68),
         "NUMPAD9" => Some(0x69),
-        "NUMPADMULTIPLY" => Some(0x6A), "NUMPADADD" => Some(0x6B),
-        "NUMPADSUBTRACT" => Some(0x6D), "NUMPADDECIMAL" => Some(0x6E),
+        "NUMPADMULTIPLY" => Some(0x6A),
+        "NUMPADADD" => Some(0x6B),
+        "NUMPADSUBTRACT" => Some(0x6D),
+        "NUMPADDECIMAL" => Some(0x6E),
         "NUMPADDIVIDE" => Some(0x6F),
         _ => None,
     }
@@ -174,7 +213,9 @@ fn key_to_vk(key: &str) -> Option<u32> {
 
 fn get_config_path() -> Result<std::path::PathBuf, String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable directory")?;
     Ok(exe_dir.join("config.json"))
 }
 
@@ -216,7 +257,9 @@ fn save_album_path(path: Option<&str>) {
     let mut config = load_config();
     match path {
         Some(p) => config["album_path"] = serde_json::json!(p),
-        None => { config.as_object_mut().map(|o| o.remove("album_path")); }
+        None => {
+            config.as_object_mut().map(|o| o.remove("album_path"));
+        }
     }
     save_config(&config);
 }
@@ -224,14 +267,29 @@ fn save_album_path(path: Option<&str>) {
 fn load_saved_note_keys() {
     let config = load_config();
     if let Some(keys) = config.get("note_keys") {
-        let low: Vec<String> = keys["low"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let low: Vec<String> = keys["low"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let mid: Vec<String> = keys["mid"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let mid: Vec<String> = keys["mid"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let high: Vec<String> = keys["high"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let high: Vec<String> = keys["high"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         if !low.is_empty() && !mid.is_empty() && !high.is_empty() {
@@ -243,9 +301,33 @@ fn load_saved_note_keys() {
     else if let Some(enabled) = config["qwertz_mode"].as_bool() {
         if enabled {
             // QWERTZ: swap Y and Z
-            let low = vec!["y".to_string(), "x".to_string(), "c".to_string(), "v".to_string(), "b".to_string(), "n".to_string(), "m".to_string()];
-            let mid = vec!["a".to_string(), "s".to_string(), "d".to_string(), "f".to_string(), "g".to_string(), "h".to_string(), "j".to_string()];
-            let high = vec!["q".to_string(), "w".to_string(), "e".to_string(), "r".to_string(), "t".to_string(), "z".to_string(), "u".to_string()];
+            let low = vec![
+                "y".to_string(),
+                "x".to_string(),
+                "c".to_string(),
+                "v".to_string(),
+                "b".to_string(),
+                "n".to_string(),
+                "m".to_string(),
+            ];
+            let mid = vec![
+                "a".to_string(),
+                "s".to_string(),
+                "d".to_string(),
+                "f".to_string(),
+                "g".to_string(),
+                "h".to_string(),
+                "j".to_string(),
+            ];
+            let high = vec![
+                "q".to_string(),
+                "w".to_string(),
+                "e".to_string(),
+                "r".to_string(),
+                "t".to_string(),
+                "z".to_string(),
+                "u".to_string(),
+            ];
             keyboard::set_note_key_bindings(low.clone(), mid.clone(), high.clone());
             save_note_keys(&low, &mid, &high);
             app_log!("Migrated from qwertz_mode to note_keys");
@@ -287,13 +369,17 @@ fn save_custom_window_keywords(keywords: &[String]) {
 
 fn get_data_path(filename: &str) -> Result<std::path::PathBuf, String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable directory")?;
     Ok(exe_dir.join(filename))
 }
 
 fn get_locales_folder() -> Result<std::path::PathBuf, String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable directory")?;
     Ok(exe_dir.join("locales"))
 }
 
@@ -308,15 +394,17 @@ fn get_album_folder() -> Result<std::path::PathBuf, String> {
 
     // Default to exe_dir/album
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable directory")?;
     Ok(exe_dir.join("album"))
 }
 
-mod midi;
-mod keyboard;
-mod state;
 mod discovery;
+mod keyboard;
+mod midi;
 mod midi_input;
+mod state;
 
 use state::{AppState, PlaybackState, VisualizerNote};
 
@@ -339,7 +427,7 @@ struct MetadataCache {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedMetadata {
-    mtime: u64,  // file modification time
+    mtime: u64, // file modification time
     duration: f64,
     bpm: u16,
     note_density: f32,
@@ -441,7 +529,8 @@ async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
             }
 
             let path_str = path.to_string_lossy().to_string();
-            let name = path.file_stem()
+            let name = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown")
                 .to_string();
@@ -466,19 +555,25 @@ async fn load_midi_files() -> Result<Vec<MidiFile>, String> {
 
             // Cache miss or stale - parse and compute
             let meta = midi::get_midi_metadata(&path_str).unwrap_or(midi::MidiMetadata {
-                duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+                duration: 0.0,
+                bpm: 120,
+                note_count: 0,
+                note_density: 0.0,
             });
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let file_hash = compute_file_hash(&path).unwrap_or_else(|| format!("{:x}", file_size));
 
-            cache.files.insert(path_str.clone(), CachedMetadata {
-                mtime,
-                duration: meta.duration,
-                bpm: meta.bpm,
-                note_density: meta.note_density,
-                hash: file_hash.clone(),
-                size: file_size,
-            });
+            cache.files.insert(
+                path_str.clone(),
+                CachedMetadata {
+                    mtime,
+                    duration: meta.duration,
+                    bpm: meta.bpm,
+                    note_density: meta.note_density,
+                    hash: file_hash.clone(),
+                    size: file_size,
+                },
+            );
             cache_modified = true;
 
             files.push(MidiFile {
@@ -586,15 +681,25 @@ async fn count_midi_files() -> Result<usize, String> {
 // offset: skip first N files (for pagination)
 // limit: max files to load (0 = all)
 #[tauri::command]
-async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit: Option<usize>) -> Result<(), String> {
+async fn load_midi_files_streaming(
+    window: Window,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<(), String> {
     let album_path = get_album_folder()?;
     let offset = offset.unwrap_or(0);
     let limit = limit.unwrap_or(0); // 0 means no limit
 
     if !album_path.exists() {
-        let _ = window.emit("midi-load-progress", MidiLoadProgress {
-            loaded: 0, total: 0, files: vec![], done: true
-        });
+        let _ = window.emit(
+            "midi-load-progress",
+            MidiLoadProgress {
+                loaded: 0,
+                total: 0,
+                files: vec![],
+                done: true,
+            },
+        );
         return Ok(());
     }
 
@@ -609,14 +714,20 @@ async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit:
                 .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("mid"))
                 .collect(),
             Err(_) => {
-                let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
-                    loaded: 0, total: 0, files: vec![], done: true
-                });
+                let _ = window_clone.emit(
+                    "midi-load-progress",
+                    MidiLoadProgress {
+                        loaded: 0,
+                        total: 0,
+                        files: vec![],
+                        done: true,
+                    },
+                );
                 return;
             }
         };
 
-        let total_all = all_entries.len();
+        let _total_all = all_entries.len();
 
         // Apply offset and limit
         let entries: Vec<_> = if limit > 0 {
@@ -628,14 +739,26 @@ async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit:
         let total_to_load = entries.len();
 
         // Emit initial count so UI knows total
-        let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
-            loaded: 0, total: total_to_load, files: vec![], done: false
-        });
+        let _ = window_clone.emit(
+            "midi-load-progress",
+            MidiLoadProgress {
+                loaded: 0,
+                total: total_to_load,
+                files: vec![],
+                done: false,
+            },
+        );
 
         if total_to_load == 0 {
-            let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
-                loaded: 0, total: 0, files: vec![], done: true
-            });
+            let _ = window_clone.emit(
+                "midi-load-progress",
+                MidiLoadProgress {
+                    loaded: 0,
+                    total: 0,
+                    files: vec![],
+                    done: true,
+                },
+            );
             return;
         }
 
@@ -657,7 +780,8 @@ async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit:
 
             for path in batch_paths {
                 let path_str = path.to_string_lossy().to_string();
-                let name = path.file_stem()
+                let name = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("Unknown")
                     .to_string();
@@ -683,13 +807,18 @@ async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit:
             }
 
             // Step 2: Parse uncached files in parallel (no locking needed)
-            let parsed_files: Vec<(MidiFile, String, u64, f64, u16, f32, String, u64)> = uncached.par_iter()
+            let parsed_files: Vec<(MidiFile, String, u64, f64, u16, f32, String, u64)> = uncached
+                .par_iter()
                 .filter_map(|(path, path_str, name, mtime)| {
                     let meta = midi::get_midi_metadata(path_str).unwrap_or(midi::MidiMetadata {
-                        duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+                        duration: 0.0,
+                        bpm: 120,
+                        note_count: 0,
+                        note_density: 0.0,
                     });
                     let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    let file_hash = compute_file_hash(path).unwrap_or_else(|| format!("{:x}", file_size));
+                    let file_hash =
+                        compute_file_hash(path).unwrap_or_else(|| format!("{:x}", file_size));
 
                     Some((
                         MidiFile {
@@ -714,21 +843,32 @@ async fn load_midi_files_streaming(window: Window, offset: Option<usize>, limit:
 
             // Step 3: Update cache with newly parsed files (single-threaded)
             for (file, path_str, mtime, duration, bpm, note_density, hash, size) in parsed_files {
-                cache.files.insert(path_str, CachedMetadata {
-                    mtime, duration, bpm, note_density, hash, size
-                });
+                cache.files.insert(
+                    path_str,
+                    CachedMetadata {
+                        mtime,
+                        duration,
+                        bpm,
+                        note_density,
+                        hash,
+                        size,
+                    },
+                );
                 cache_modified = true;
                 cached_files.push(file);
             }
 
             // Emit progress with all files from this batch
             loaded_count += cached_files.len();
-            let _ = window_clone.emit("midi-load-progress", MidiLoadProgress {
-                loaded: loaded_count,
-                total: total_to_load,
-                files: cached_files,
-                done: loaded_count >= total_to_load,
-            });
+            let _ = window_clone.emit(
+                "midi-load-progress",
+                MidiLoadProgress {
+                    loaded: loaded_count,
+                    total: total_to_load,
+                    files: cached_files,
+                    done: loaded_count >= total_to_load,
+                },
+            );
         }
 
         // Save cache if modified
@@ -749,7 +889,7 @@ async fn get_midi_tracks(path: String) -> Result<Vec<midi::MidiTrackInfo>, Strin
 async fn play_midi(
     path: String,
     state: State<'_, Arc<Mutex<AppState>>>,
-    window: Window
+    window: Window,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.stop_playback();
@@ -771,7 +911,7 @@ async fn play_midi_band(
     total_players: usize,
     track_id: Option<usize>,
     state: State<'_, Arc<Mutex<AppState>>>,
-    window: Window
+    window: Window,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.stop_playback();
@@ -790,18 +930,14 @@ async fn play_midi_band(
 }
 
 #[tauri::command]
-async fn pause_resume(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<PlaybackState, String> {
+async fn pause_resume(state: State<'_, Arc<Mutex<AppState>>>) -> Result<PlaybackState, String> {
     let mut app_state = state.lock().unwrap();
     app_state.toggle_pause();
     Ok(app_state.get_playback_state())
 }
 
 #[tauri::command]
-async fn stop_playback(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<(), String> {
+async fn stop_playback(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.stop_playback();
     Ok(())
@@ -809,7 +945,7 @@ async fn stop_playback(
 
 #[tauri::command]
 async fn get_playback_status(
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<PlaybackState, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_playback_state())
@@ -818,7 +954,7 @@ async fn get_playback_status(
 #[tauri::command]
 async fn set_loop_mode(
     enabled: bool,
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.set_loop_mode(enabled);
@@ -828,7 +964,7 @@ async fn set_loop_mode(
 #[tauri::command]
 async fn set_note_mode(
     mode: midi::NoteMode,
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.set_note_mode(mode);
@@ -837,9 +973,7 @@ async fn set_note_mode(
 }
 
 #[tauri::command]
-async fn get_note_mode(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<midi::NoteMode, String> {
+async fn get_note_mode(state: State<'_, Arc<Mutex<AppState>>>) -> Result<midi::NoteMode, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_note_mode())
 }
@@ -847,7 +981,7 @@ async fn get_note_mode(
 #[tauri::command]
 async fn set_track_filter(
     track_id: Option<usize>,
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
     let app_state = state.lock().unwrap();
     app_state.update_band_filter_live(track_id);
@@ -856,10 +990,7 @@ async fn set_track_filter(
 }
 
 #[tauri::command]
-async fn set_octave_shift(
-    shift: i8,
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<(), String> {
+async fn set_octave_shift(shift: i8, state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.set_octave_shift(shift);
     println!("Octave shift set to: {}", shift);
@@ -867,18 +998,13 @@ async fn set_octave_shift(
 }
 
 #[tauri::command]
-async fn get_octave_shift(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<i8, String> {
+async fn get_octave_shift(state: State<'_, Arc<Mutex<AppState>>>) -> Result<i8, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_octave_shift())
 }
 
 #[tauri::command]
-async fn set_speed(
-    speed: f64,
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<(), String> {
+async fn set_speed(speed: f64, state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.set_speed(speed);
     println!("Speed set to: {}x", speed);
@@ -886,9 +1012,7 @@ async fn set_speed(
 }
 
 #[tauri::command]
-async fn get_speed(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<f64, String> {
+async fn get_speed(state: State<'_, Arc<Mutex<AppState>>>) -> Result<f64, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_speed())
 }
@@ -896,7 +1020,7 @@ async fn get_speed(
 #[tauri::command]
 async fn set_key_mode(
     mode: midi::KeyMode,
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.set_key_mode(mode);
@@ -905,9 +1029,7 @@ async fn set_key_mode(
 }
 
 #[tauri::command]
-async fn get_key_mode(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<midi::KeyMode, String> {
+async fn get_key_mode(state: State<'_, Arc<Mutex<AppState>>>) -> Result<midi::KeyMode, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_key_mode())
 }
@@ -946,7 +1068,11 @@ async fn get_cloud_mode() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn set_note_keys(low: Vec<String>, mid: Vec<String>, high: Vec<String>) -> Result<(), String> {
+async fn set_note_keys(
+    low: Vec<String>,
+    mid: Vec<String>,
+    high: Vec<String>,
+) -> Result<(), String> {
     keyboard::set_note_key_bindings(low.clone(), mid.clone(), high.clone());
     save_note_keys(&low, &mid, &high);
     Ok(())
@@ -1056,7 +1182,10 @@ async fn tap_key(key: String) -> Result<(), String> {
 #[tauri::command]
 async fn test_all_keys() -> Result<(), String> {
     // Test all 21 keys: Low (Z-M), Mid (A-J), High (Q-U)
-    let keys = ["z", "x", "c", "v", "b", "n", "m", "a", "s", "d", "f", "g", "h", "j", "q", "w", "e", "r", "t", "y", "u"];
+    let keys = [
+        "z", "x", "c", "v", "b", "n", "m", "a", "s", "d", "f", "g", "h", "j", "q", "w", "e", "r",
+        "t", "y", "u",
+    ];
     for key in keys {
         keyboard::key_down(key);
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1080,12 +1209,12 @@ async fn test_all_keys_36() -> Result<(), String> {
     let high_natural = ["q", "w", "e", "r", "t", "y", "u"];
 
     // Sharps (Shift+key): #1, #4, #5 per octave
-    let low_sharps = ["shift+z", "shift+v", "shift+b"];  // C#, F#, G#
+    let low_sharps = ["shift+z", "shift+v", "shift+b"]; // C#, F#, G#
     let mid_sharps = ["shift+a", "shift+f", "shift+g"];
     let high_sharps = ["shift+q", "shift+r", "shift+t"];
 
     // Flats (Ctrl+key): b3, b7 per octave
-    let low_flats = ["ctrl+c", "ctrl+m"];  // Eb, Bb
+    let low_flats = ["ctrl+c", "ctrl+m"]; // Eb, Bb
     let mid_flats = ["ctrl+d", "ctrl+j"];
     let high_flats = ["ctrl+e", "ctrl+u"];
 
@@ -1093,15 +1222,22 @@ async fn test_all_keys_36() -> Result<(), String> {
 
     // All 36 keys in order
     let all_keys: Vec<&str> = [
-        low_natural.as_slice(), low_sharps.as_slice(), low_flats.as_slice(),
-        mid_natural.as_slice(), mid_sharps.as_slice(), mid_flats.as_slice(),
-        high_natural.as_slice(), high_sharps.as_slice(), high_flats.as_slice(),
-    ].concat();
+        low_natural.as_slice(),
+        low_sharps.as_slice(),
+        low_flats.as_slice(),
+        mid_natural.as_slice(),
+        mid_sharps.as_slice(),
+        mid_flats.as_slice(),
+        high_natural.as_slice(),
+        high_sharps.as_slice(),
+        high_flats.as_slice(),
+    ]
+    .concat();
 
     // Test all keys - instant combo (shift+x together), small gap between notes for UI
     for key in all_keys {
-        keyboard::key_down(key);  // Shift+X fires together instantly
-        keyboard::key_up(key);    // Release together instantly
+        keyboard::key_down(key); // Shift+X fires together instantly
+        keyboard::key_up(key); // Release together instantly
         std::thread::sleep(std::time::Duration::from_millis(50)); // Gap between notes for UI
     }
 
@@ -1113,7 +1249,10 @@ async fn test_all_keys_36() -> Result<(), String> {
 /// delay_ms: delay between each key press (0 = max speed)
 #[tauri::command]
 fn spam_test(key: String, count: u32, delay_ms: u64) -> Result<(), String> {
-    println!("[SPAM] Starting: key='{}' count={} delay={}ms", key, count, delay_ms);
+    println!(
+        "[SPAM] Starting: key='{}' count={} delay={}ms",
+        key, count, delay_ms
+    );
 
     for _ in 0..count {
         keyboard::key_down(&key);
@@ -1133,11 +1272,14 @@ fn spam_test(key: String, count: u32, delay_ms: u64) -> Result<(), String> {
 #[tauri::command]
 fn spam_test_multi(count: u32, delay_ms: u64) -> Result<(), String> {
     let keys = [
-        "z", "x", "c", "v", "b", "n", "m",  // Low
-        "a", "s", "d", "f", "g", "h", "j",  // Mid
-        "q", "w", "e", "r", "t", "y", "u",  // High
+        "z", "x", "c", "v", "b", "n", "m", // Low
+        "a", "s", "d", "f", "g", "h", "j", // Mid
+        "q", "w", "e", "r", "t", "y", "u", // High
     ];
-    println!("[SPAM-MULTI] Starting: {} iterations, delay={}ms, 21 keys", count, delay_ms);
+    println!(
+        "[SPAM-MULTI] Starting: {} iterations, delay={}ms, 21 keys",
+        count, delay_ms
+    );
 
     for i in 0..count {
         let key = keys[i as usize % keys.len()];
@@ -1158,12 +1300,15 @@ fn spam_test_multi(count: u32, delay_ms: u64) -> Result<(), String> {
 #[tauri::command]
 fn spam_test_chord(chord_size: u32, count: u32, delay_ms: u64) -> Result<(), String> {
     let keys = [
-        "z", "x", "c", "v", "b", "n", "m",  // Low
-        "a", "s", "d", "f", "g", "h", "j",  // Mid
-        "q", "w", "e", "r", "t", "y", "u",  // High
+        "z", "x", "c", "v", "b", "n", "m", // Low
+        "a", "s", "d", "f", "g", "h", "j", // Mid
+        "q", "w", "e", "r", "t", "y", "u", // High
     ];
     let size = chord_size.min(21) as usize;
-    println!("[CHORD] Starting: {} notes per chord, {} chords, delay={}ms", size, count, delay_ms);
+    println!(
+        "[CHORD] Starting: {} notes per chord, {} chords, delay={}ms",
+        size, count, delay_ms
+    );
 
     for c in 0..count {
         // Press all keys in chord
@@ -1192,7 +1337,9 @@ fn spam_test_chord(chord_size: u32, count: u32, delay_ms: u64) -> Result<(), Str
 
 #[tauri::command]
 async fn set_interaction_mode(window: Window, interactive: bool) -> Result<(), String> {
-    window.set_ignore_cursor_events(!interactive).map_err(|e| e.to_string())?;
+    window
+        .set_ignore_cursor_events(!interactive)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1224,21 +1371,28 @@ async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
 
     // Check if file already exists
     if dest_path.exists() {
-        return Err(format!("File '{}' already exists in album", filename.to_string_lossy()));
+        return Err(format!(
+            "File '{}' already exists in album",
+            filename.to_string_lossy()
+        ));
     }
 
     // Copy file to album folder
     std::fs::copy(&source, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
 
     // Get metadata and return file info
-    let name = source.file_stem()
+    let name = source
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Unknown")
         .to_string();
 
-    let meta = midi::get_midi_metadata(&dest_path.to_string_lossy())
-        .unwrap_or(midi::MidiMetadata {
-            duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+    let meta =
+        midi::get_midi_metadata(&dest_path.to_string_lossy()).unwrap_or(midi::MidiMetadata {
+            duration: 0.0,
+            bpm: 120,
+            note_count: 0,
+            note_density: 0.0,
         });
 
     let file_size = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
@@ -1260,10 +1414,10 @@ async fn import_midi_file(source_path: String) -> Result<MidiFile, String> {
 async fn import_from_zip(zip_path: String) -> Result<Vec<MidiFile>, String> {
     use std::io::Read;
 
-    let zip_file = std::fs::File::open(&zip_path)
-        .map_err(|e| format!("Failed to open zip: {}", e))?;
-    let mut archive = zip::ZipArchive::new(zip_file)
-        .map_err(|e| format!("Invalid zip file: {}", e))?;
+    let zip_file =
+        std::fs::File::open(&zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(zip_file).map_err(|e| format!("Invalid zip file: {}", e))?;
 
     let album_path = get_album_folder()?;
     std::fs::create_dir_all(&album_path).ok();
@@ -1292,22 +1446,39 @@ async fn import_from_zip(zip_path: String) -> Result<Vec<MidiFile>, String> {
         };
 
         let dest = album_path.join(&filename);
-        if dest.exists() { continue; }
+        if dest.exists() {
+            continue;
+        }
 
         let mut contents = Vec::new();
-        if file.read_to_end(&mut contents).is_err() { continue; }
-        if std::fs::write(&dest, &contents).is_err() { continue; }
+        if file.read_to_end(&mut contents).is_err() {
+            continue;
+        }
+        if std::fs::write(&dest, &contents).is_err() {
+            continue;
+        }
 
         let name = std::path::Path::new(&filename)
-            .file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
-        let meta = midi::get_midi_metadata(&dest.to_string_lossy())
-            .unwrap_or(midi::MidiMetadata { duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0 });
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let meta = midi::get_midi_metadata(&dest.to_string_lossy()).unwrap_or(midi::MidiMetadata {
+            duration: 0.0,
+            bpm: 120,
+            note_count: 0,
+            note_density: 0.0,
+        });
         let hash = compute_file_hash(&dest).unwrap_or_default();
 
         imported.push(MidiFile {
-            name, path: dest.to_string_lossy().to_string(),
-            duration: meta.duration, bpm: meta.bpm, note_density: meta.note_density,
-            hash, size: contents.len() as u64,
+            name,
+            path: dest.to_string_lossy().to_string(),
+            duration: meta.duration,
+            bpm: meta.bpm,
+            note_density: meta.note_density,
+            hash,
+            size: contents.len() as u64,
         });
     }
 
@@ -1366,7 +1537,9 @@ async fn reset_album_path() -> Result<String, String> {
     save_album_path(None);
     // Return the default path
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("Failed to get executable directory")?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Failed to get executable directory")?;
     Ok(exe_dir.join("album").to_string_lossy().to_string())
 }
 
@@ -1441,7 +1614,9 @@ async fn get_available_user_locales() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn init_user_locales(default_locales: std::collections::HashMap<String, serde_json::Value>) -> Result<(), String> {
+async fn init_user_locales(
+    default_locales: std::collections::HashMap<String, serde_json::Value>,
+) -> Result<(), String> {
     let locales_dir = get_locales_folder()?;
 
     // Create locales directory if it doesn't exist
@@ -1491,7 +1666,7 @@ async fn open_locales_folder() -> Result<(), String> {
 // Band mode: Read MIDI file as base64 for transfer
 #[tauri::command]
 async fn read_midi_base64(path: String) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -1525,9 +1700,10 @@ async fn check_file_exists(file_path: String) -> bool {
 // Band mode: Save MIDI file to temp for playback
 #[tauri::command]
 async fn save_temp_midi(filename: String, data_base64: String) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let data = STANDARD.decode(&data_base64)
+    let data = STANDARD
+        .decode(&data_base64)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
     // SECURITY: Check for executable signatures first
@@ -1580,8 +1756,11 @@ fn is_executable_data(data: &[u8]) -> Option<&'static str> {
     // Mach-O (macOS executables) - both 32 and 64 bit, both endianness
     if data.len() >= 4 {
         let magic = &data[0..4];
-        if magic == b"\xFE\xED\xFA\xCE" || magic == b"\xFE\xED\xFA\xCF" ||
-           magic == b"\xCE\xFA\xED\xFE" || magic == b"\xCF\xFA\xED\xFE" {
+        if magic == b"\xFE\xED\xFA\xCE"
+            || magic == b"\xFE\xED\xFA\xCF"
+            || magic == b"\xCE\xFA\xED\xFE"
+            || magic == b"\xCF\xFA\xED\xFE"
+        {
             return Some("macOS executable (Mach-O)");
         }
     }
@@ -1607,8 +1786,11 @@ fn is_executable_data(data: &[u8]) -> Option<&'static str> {
     // PowerShell scripts
     if data.len() >= 10 {
         let start = String::from_utf8_lossy(&data[0..100.min(data.len())]).to_lowercase();
-        if start.contains("powershell") || start.contains("invoke-") ||
-           start.contains("$env:") || start.contains("set-executionpolicy") {
+        if start.contains("powershell")
+            || start.contains("invoke-")
+            || start.contains("$env:")
+            || start.contains("set-executionpolicy")
+        {
             return Some("PowerShell script");
         }
     }
@@ -1616,7 +1798,7 @@ fn is_executable_data(data: &[u8]) -> Option<&'static str> {
     // Check for PE header in first 1KB (embedded executables)
     let check_len = 1024.min(data.len());
     for i in 0..check_len.saturating_sub(4) {
-        if &data[i..i+4] == b"PE\x00\x00" {
+        if &data[i..i + 4] == b"PE\x00\x00" {
             return Some("Embedded PE executable");
         }
     }
@@ -1627,9 +1809,10 @@ fn is_executable_data(data: &[u8]) -> Option<&'static str> {
 // Verify MIDI data is valid (for P2P library safety)
 #[tauri::command]
 async fn verify_midi_data(data_base64: String) -> Result<bool, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let data = STANDARD.decode(&data_base64)
+    let data = STANDARD
+        .decode(&data_base64)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
     // SECURITY: Check for executable signatures first
@@ -1645,7 +1828,10 @@ async fn verify_midi_data(data_base64: String) -> Result<bool, String> {
 
     // Check MIDI header "MThd" - MUST be first 4 bytes
     if &data[0..4] != b"MThd" {
-        println!("[SECURITY] Rejected: Missing MIDI header (MThd), got {:?}", &data[0..4.min(data.len())]);
+        println!(
+            "[SECURITY] Rejected: Missing MIDI header (MThd), got {:?}",
+            &data[0..4.min(data.len())]
+        );
         return Ok(false);
     }
 
@@ -1685,9 +1871,10 @@ async fn verify_midi_data(data_base64: String) -> Result<bool, String> {
 // Save MIDI file to album folder (for P2P library)
 #[tauri::command]
 async fn save_midi_from_base64(filename: String, data_base64: String) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let data = STANDARD.decode(&data_base64)
+    let data = STANDARD
+        .decode(&data_base64)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
     // SECURITY: Check for executable signatures first
@@ -1769,8 +1956,7 @@ async fn rename_midi_file(old_path: String, new_name: String) -> Result<String, 
         return Err("A file with that name already exists".to_string());
     }
 
-    std::fs::rename(&source, &new_path)
-        .map_err(|e| format!("Failed to rename: {}", e))?;
+    std::fs::rename(&source, &new_path).map_err(|e| format!("Failed to rename: {}", e))?;
 
     Ok(new_path.to_string_lossy().to_string())
 }
@@ -1790,8 +1976,7 @@ async fn delete_midi_file(path: String) -> Result<(), String> {
         return Err("Can only delete files in album folder".to_string());
     }
 
-    std::fs::remove_file(&file_path)
-        .map_err(|e| format!("Failed to delete: {}", e))?;
+    std::fs::remove_file(&file_path).map_err(|e| format!("Failed to delete: {}", e))?;
 
     Ok(())
 }
@@ -1874,7 +2059,7 @@ async fn save_always_on_top(enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_visualizer_notes(
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<Vec<VisualizerNote>, String> {
     let app_state = state.lock().unwrap();
     Ok(app_state.get_visualizer_notes())
@@ -1918,7 +2103,8 @@ async fn download_midi_from_url(url: String) -> Result<MidiFile, String> {
 
     // Read response body
     let mut bytes = Vec::new();
-    response.into_reader()
+    response
+        .into_reader()
         .take(10 * 1024 * 1024) // Limit to 10MB
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read response: {}", e))?;
@@ -1959,18 +2145,21 @@ async fn download_midi_from_url(url: String) -> Result<MidiFile, String> {
     };
 
     // Write file
-    std::fs::write(&final_path, &bytes)
-        .map_err(|e| format!("Failed to save file: {}", e))?;
+    std::fs::write(&final_path, &bytes).map_err(|e| format!("Failed to save file: {}", e))?;
 
     // Get metadata and return file info
-    let name = final_path.file_stem()
+    let name = final_path
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Unknown")
         .to_string();
 
-    let meta = midi::get_midi_metadata(&final_path.to_string_lossy())
-        .unwrap_or(midi::MidiMetadata {
-            duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+    let meta =
+        midi::get_midi_metadata(&final_path.to_string_lossy()).unwrap_or(midi::MidiMetadata {
+            duration: 0.0,
+            bpm: 120,
+            note_count: 0,
+            note_density: 0.0,
         });
 
     let file_size = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
@@ -1991,7 +2180,7 @@ async fn download_midi_from_url(url: String) -> Result<MidiFile, String> {
 async fn seek(
     position: f64,
     state: State<'_, Arc<Mutex<AppState>>>,
-    window: Window
+    window: Window,
 ) -> Result<(), String> {
     let mut app_state = state.lock().unwrap();
     app_state.seek(position, window)?;
@@ -2017,19 +2206,21 @@ struct UpdateInfo {
 async fn check_for_update(current_version: String) -> Result<Option<UpdateInfo>, String> {
     use std::io::Read;
 
-    let response = ureq::get("https://api.github.com/repos/SnowiyQ/Where-Winds-Meet-Midi-Player/releases/latest")
-        .set("User-Agent", "WWM-Overlay")
-        .call()
-        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+    let response = ureq::get(
+        "https://api.github.com/repos/SnowiyQ/Where-Winds-Meet-Midi-Player/releases/latest",
+    )
+    .set("User-Agent", "WWM-Overlay")
+    .call()
+    .map_err(|e| format!("Failed to check for updates: {}", e))?;
 
     let mut body = String::new();
-    response.into_reader()
+    response
+        .into_reader()
         .take(1024 * 1024)
         .read_to_string(&mut body)
         .map_err(|e| e.to_string())?;
 
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
     let latest_version = json["tag_name"]
         .as_str()
@@ -2051,7 +2242,8 @@ async fn check_for_update(current_version: String) -> Result<Option<UpdateInfo>,
     let download_url = assets
         .and_then(|arr| {
             arr.iter().find(|a| {
-                a["name"].as_str()
+                a["name"]
+                    .as_str()
                     .map(|n| n.ends_with(".zip"))
                     .unwrap_or(false)
             })
@@ -2062,7 +2254,8 @@ async fn check_for_update(current_version: String) -> Result<Option<UpdateInfo>,
     let file_name = assets
         .and_then(|arr| {
             arr.iter().find(|a| {
-                a["name"].as_str()
+                a["name"]
+                    .as_str()
                     .map(|n| n.ends_with(".zip"))
                     .unwrap_or(false)
             })
@@ -2088,11 +2281,7 @@ async fn check_for_update(current_version: String) -> Result<Option<UpdateInfo>,
 }
 
 fn is_newer_version(latest: &str, current: &str) -> bool {
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
+    let parse = |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
 
     let latest_parts = parse(latest);
     let current_parts = parse(current);
@@ -2100,8 +2289,12 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     for i in 0..latest_parts.len().max(current_parts.len()) {
         let l = latest_parts.get(i).unwrap_or(&0);
         let c = current_parts.get(i).unwrap_or(&0);
-        if l > c { return true; }
-        if l < c { return false; }
+        if l > c {
+            return true;
+        }
+        if l < c {
+            return false;
+        }
     }
     false
 }
@@ -2123,13 +2316,13 @@ async fn download_update(download_url: String, file_name: String) -> Result<Stri
         .map_err(|e| format!("Failed to download update: {}", e))?;
 
     let mut bytes = Vec::new();
-    response.into_reader()
+    response
+        .into_reader()
         .take(100 * 1024 * 1024) // 100MB limit
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read download: {}", e))?;
 
-    std::fs::write(&download_path, &bytes)
-        .map_err(|e| format!("Failed to save update: {}", e))?;
+    std::fs::write(&download_path, &bytes).map_err(|e| format!("Failed to save update: {}", e))?;
 
     app_log!("[UPDATE] Downloaded {} bytes", bytes.len());
 
@@ -2185,8 +2378,7 @@ async fn save_favorites(favorites: serde_json::Value) -> Result<(), String> {
     let path = get_data_path("favorites.json")?;
     let content = serde_json::to_string_pretty(&favorites)
         .map_err(|e| format!("Failed to serialize favorites: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write favorites: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write favorites: {}", e))?;
     Ok(())
 }
 
@@ -2209,8 +2401,7 @@ async fn save_playlists(playlists: serde_json::Value) -> Result<(), String> {
     let path = get_data_path("playlists.json")?;
     let content = serde_json::to_string_pretty(&playlists)
         .map_err(|e| format!("Failed to serialize playlists: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write playlists: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write playlists: {}", e))?;
     Ok(())
 }
 
@@ -2244,8 +2435,7 @@ async fn export_favorites(
     let file = std::fs::File::create(&export_path)
         .map_err(|e| format!("Failed to create zip file: {}", e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     let mut export_tracks = Vec::new();
 
@@ -2331,8 +2521,7 @@ async fn export_playlist(
     let file = std::fs::File::create(&export_path)
         .map_err(|e| format!("Failed to create zip file: {}", e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     let mut export_tracks = Vec::new();
 
@@ -2407,10 +2596,7 @@ async fn export_playlist(
 
 // Export entire library to a zip file
 #[tauri::command]
-async fn export_library(
-    export_path: String,
-    window: Window,
-) -> Result<u32, String> {
+async fn export_library(export_path: String, window: Window) -> Result<u32, String> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -2424,7 +2610,9 @@ async fn export_library(
         .map_err(|e| format!("Failed to read album folder: {}", e))?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().extension()
+            entry
+                .path()
+                .extension()
                 .map(|ext| ext.to_string_lossy().to_lowercase() == "mid")
                 .unwrap_or(false)
         })
@@ -2438,8 +2626,7 @@ async fn export_library(
     let file = std::fs::File::create(&export_path)
         .map_err(|e| format!("Failed to create zip file: {}", e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     let mut exported_count = 0u32;
 
@@ -2472,10 +2659,13 @@ async fn export_library(
 
         // Emit progress every 100 files
         if index % 100 == 0 || index == total_files - 1 {
-            let _ = window.emit("export-progress", serde_json::json!({
-                "current": index + 1,
-                "total": total_files
-            }));
+            let _ = window.emit(
+                "export-progress",
+                serde_json::json!({
+                    "current": index + 1,
+                    "total": total_files
+                }),
+            );
         }
     }
 
@@ -2525,7 +2715,9 @@ fn compute_hash_from_bytes(data: &[u8]) -> String {
 }
 
 // Build a map of hash -> MidiFile for existing files in album
-fn get_existing_files_by_hash(album_dir: &std::path::Path) -> std::collections::HashMap<String, MidiFile> {
+fn get_existing_files_by_hash(
+    album_dir: &std::path::Path,
+) -> std::collections::HashMap<String, MidiFile> {
     let mut map = std::collections::HashMap::new();
 
     if let Ok(entries) = std::fs::read_dir(album_dir) {
@@ -2533,27 +2725,35 @@ fn get_existing_files_by_hash(album_dir: &std::path::Path) -> std::collections::
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("mid") {
                 if let Some(hash) = compute_file_hash(&path) {
-                    let name = path.file_stem()
+                    let name = path
+                        .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("Unknown")
                         .to_string();
 
-                    let meta = midi::get_midi_metadata(&path.to_string_lossy())
-                        .unwrap_or(midi::MidiMetadata {
-                            duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
-                        });
+                    let meta = midi::get_midi_metadata(&path.to_string_lossy()).unwrap_or(
+                        midi::MidiMetadata {
+                            duration: 0.0,
+                            bpm: 120,
+                            note_count: 0,
+                            note_density: 0.0,
+                        },
+                    );
 
                     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
-                    map.insert(hash.clone(), MidiFile {
-                        name,
-                        path: path.to_string_lossy().to_string(),
-                        duration: meta.duration,
-                        bpm: meta.bpm,
-                        note_density: meta.note_density,
-                        hash,
-                        size: file_size,
-                    });
+                    map.insert(
+                        hash.clone(),
+                        MidiFile {
+                            name,
+                            path: path.to_string_lossy().to_string(),
+                            duration: meta.duration,
+                            bpm: meta.bpm,
+                            note_density: meta.note_density,
+                            hash,
+                            size: file_size,
+                        },
+                    );
                 }
             }
         }
@@ -2567,10 +2767,10 @@ fn get_existing_files_by_hash(album_dir: &std::path::Path) -> std::collections::
 async fn import_zip(zip_path: String) -> Result<ImportResult, String> {
     use std::io::Read;
 
-    let file = std::fs::File::open(&zip_path)
-        .map_err(|e| format!("Failed to open zip file: {}", e))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
+    let file =
+        std::fs::File::open(&zip_path).map_err(|e| format!("Failed to open zip file: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
     let album_dir = get_album_folder()?;
 
@@ -2594,7 +2794,10 @@ async fn import_zip(zip_path: String) -> Result<ImportResult, String> {
             let mut contents = String::new();
             file.read_to_string(&mut contents).ok();
             if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&contents) {
-                export_type = meta["export_type"].as_str().unwrap_or("unknown").to_string();
+                export_type = meta["export_type"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_string();
                 export_name = meta["name"].as_str().unwrap_or("Import").to_string();
             }
             break;
@@ -2602,10 +2805,10 @@ async fn import_zip(zip_path: String) -> Result<ImportResult, String> {
     }
 
     // Re-open archive for extraction (can't reuse after iteration)
-    let file = std::fs::File::open(&zip_path)
-        .map_err(|e| format!("Failed to reopen zip file: {}", e))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
+    let file =
+        std::fs::File::open(&zip_path).map_err(|e| format!("Failed to reopen zip file: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
     // Second pass: extract MIDI files
     for i in 0..archive.len() {
@@ -2633,7 +2836,11 @@ async fn import_zip(zip_path: String) -> Result<ImportResult, String> {
 
         // Check if file with same hash already exists
         if let Some(existing) = existing_files.get(&file_hash).cloned() {
-            app_log!("[IMPORT] Skipping duplicate (hash exists): {} -> {}", filename, existing.path);
+            app_log!(
+                "[IMPORT] Skipping duplicate (hash exists): {} -> {}",
+                filename,
+                existing.path
+            );
             imported_files.push(existing);
             continue;
         }
@@ -2652,14 +2859,18 @@ async fn import_zip(zip_path: String) -> Result<ImportResult, String> {
             .map_err(|e| format!("Failed to save {}: {}", filename, e))?;
 
         // Get metadata for the imported file
-        let name = save_path.file_stem()
+        let name = save_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Unknown")
             .to_string();
 
-        let meta = midi::get_midi_metadata(&save_path.to_string_lossy())
-            .unwrap_or(midi::MidiMetadata {
-                duration: 0.0, bpm: 120, note_count: 0, note_density: 0.0
+        let meta =
+            midi::get_midi_metadata(&save_path.to_string_lossy()).unwrap_or(midi::MidiMetadata {
+                duration: 0.0,
+                bpm: 120,
+                note_count: 0,
+                note_density: 0.0,
             });
 
         let file_size = contents.len() as u64;
@@ -2702,7 +2913,10 @@ fn chrono_now() -> String {
     let hours = time_of_day / 3600;
     let minutes = (time_of_day % 3600) / 60;
     let seconds = time_of_day % 60;
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 #[tauri::command]
@@ -2757,7 +2971,10 @@ fn register_global_hotkeys() -> Vec<(String, bool)> {
         // Pause/Resume
         if let Some(vk) = key_to_vk(&kb.pause_resume) {
             let result = RegisterHotKey(None, HOTKEY_PAUSE_RESUME, MOD_NOREPEAT, vk);
-            results.push((format!("{} (Pause/Resume)", kb.pause_resume), result.is_ok()));
+            results.push((
+                format!("{} (Pause/Resume)", kb.pause_resume),
+                result.is_ok(),
+            ));
         }
 
         // Stop - also register End as backup
@@ -2786,32 +3003,56 @@ fn register_global_hotkeys() -> Vec<(String, bool)> {
 
 // Cached keybinding VK codes for low-level hook
 static mut CACHED_PAUSE_RESUME_VK: u32 = 0x91; // ScrollLock
-static mut CACHED_STOP_VK: u32 = 0x7B;         // F12
-static mut CACHED_PREVIOUS_VK: u32 = 0x79;     // F10
-static mut CACHED_NEXT_VK: u32 = 0x7A;         // F11
-static mut CACHED_MODE_PREV_VK: u32 = 0xDB;    // [
-static mut CACHED_MODE_NEXT_VK: u32 = 0xDD;    // ]
-static mut CACHED_TOGGLE_MINI_VK: u32 = 0x2D;  // Insert
+static mut CACHED_STOP_VK: u32 = 0x7B; // F12
+static mut CACHED_PREVIOUS_VK: u32 = 0x79; // F10
+static mut CACHED_NEXT_VK: u32 = 0x7A; // F11
+static mut CACHED_MODE_PREV_VK: u32 = 0xDB; // [
+static mut CACHED_MODE_NEXT_VK: u32 = 0xDD; // ]
+static mut CACHED_TOGGLE_MINI_VK: u32 = 0x2D; // Insert
 static mut KEYBINDINGS_DISABLED: bool = false; // Disable during recording
-static mut RECORDING_MODE: bool = false;       // When true, emit key names instead of actions
+static mut RECORDING_MODE: bool = false; // When true, emit key names instead of actions
 
 // Convert VK code to key name string
 fn vk_to_key(vk: u32) -> Option<String> {
     match vk {
         0x1B => Some("Escape".into()),
-        0x70 => Some("F1".into()), 0x71 => Some("F2".into()), 0x72 => Some("F3".into()), 0x73 => Some("F4".into()),
-        0x74 => Some("F5".into()), 0x75 => Some("F6".into()), 0x76 => Some("F7".into()), 0x77 => Some("F8".into()),
-        0x78 => Some("F9".into()), 0x79 => Some("F10".into()), 0x7A => Some("F11".into()), 0x7B => Some("F12".into()),
-        0x2D => Some("Insert".into()), 0x2E => Some("Delete".into()),
-        0x24 => Some("Home".into()), 0x23 => Some("End".into()),
-        0x21 => Some("PageUp".into()), 0x22 => Some("PageDown".into()),
-        0x91 => Some("ScrollLock".into()), 0x13 => Some("Pause".into()), 0x90 => Some("NumLock".into()),
+        0x70 => Some("F1".into()),
+        0x71 => Some("F2".into()),
+        0x72 => Some("F3".into()),
+        0x73 => Some("F4".into()),
+        0x74 => Some("F5".into()),
+        0x75 => Some("F6".into()),
+        0x76 => Some("F7".into()),
+        0x77 => Some("F8".into()),
+        0x78 => Some("F9".into()),
+        0x79 => Some("F10".into()),
+        0x7A => Some("F11".into()),
+        0x7B => Some("F12".into()),
+        0x2D => Some("Insert".into()),
+        0x2E => Some("Delete".into()),
+        0x24 => Some("Home".into()),
+        0x23 => Some("End".into()),
+        0x21 => Some("PageUp".into()),
+        0x22 => Some("PageDown".into()),
+        0x91 => Some("ScrollLock".into()),
+        0x13 => Some("Pause".into()),
+        0x90 => Some("NumLock".into()),
         0x2C => Some("PrintScreen".into()),
-        0x26 => Some("Up".into()), 0x28 => Some("Down".into()), 0x25 => Some("Left".into()), 0x27 => Some("Right".into()),
-        0xDB => Some("[".into()), 0xDD => Some("]".into()), 0xC0 => Some("`".into()),
-        0xBD => Some("-".into()), 0xBB => Some("=".into()), 0xDC => Some("\\".into()),
-        0xBA => Some(";".into()), 0xDE => Some("'".into()),
-        0xBC => Some(",".into()), 0xBE => Some(".".into()), 0xBF => Some("/".into()),
+        0x26 => Some("Up".into()),
+        0x28 => Some("Down".into()),
+        0x25 => Some("Left".into()),
+        0x27 => Some("Right".into()),
+        0xDB => Some("[".into()),
+        0xDD => Some("]".into()),
+        0xC0 => Some("`".into()),
+        0xBD => Some("-".into()),
+        0xBB => Some("=".into()),
+        0xDC => Some("\\".into()),
+        0xBA => Some(";".into()),
+        0xDE => Some("'".into()),
+        0xBC => Some(",".into()),
+        0xBE => Some(".".into()),
+        0xBF => Some("/".into()),
         // Letters A-Z
         0x41..=0x5A => Some(((b'A' + (vk - 0x41) as u8) as char).to_string()),
         // Numbers 0-9
@@ -2833,9 +3074,13 @@ fn cache_keybinding_vks() {
         CACHED_MODE_NEXT_VK = key_to_vk(&kb.mode_next).unwrap_or(0xDD);
         CACHED_TOGGLE_MINI_VK = key_to_vk(&kb.toggle_mini).unwrap_or(0x2D);
     }
-    app_log!("[KEYBINDINGS] Reloaded: pause={:02X} stop={:02X} prev={:02X} next={:02X}",
-        unsafe { CACHED_PAUSE_RESUME_VK }, unsafe { CACHED_STOP_VK },
-        unsafe { CACHED_PREVIOUS_VK }, unsafe { CACHED_NEXT_VK });
+    app_log!(
+        "[KEYBINDINGS] Reloaded: pause={:02X} stop={:02X} prev={:02X} next={:02X}",
+        unsafe { CACHED_PAUSE_RESUME_VK },
+        unsafe { CACHED_STOP_VK },
+        unsafe { CACHED_PREVIOUS_VK },
+        unsafe { CACHED_NEXT_VK }
+    );
 }
 
 // Low-level keyboard hook callback for all keybindings
@@ -2855,7 +3100,18 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 // Recording mode: emit key name for binding capture
                 if RECORDING_MODE {
                     // Skip modifier keys
-                    if vk != 0x10 && vk != 0x11 && vk != 0x12 && vk != 0xA0 && vk != 0xA1 && vk != 0xA2 && vk != 0xA3 && vk != 0xA4 && vk != 0xA5 && vk != 0x5B && vk != 0x5C {
+                    if vk != 0x10
+                        && vk != 0x11
+                        && vk != 0x12
+                        && vk != 0xA0
+                        && vk != 0xA1
+                        && vk != 0xA2
+                        && vk != 0xA3
+                        && vk != 0xA4
+                        && vk != 0xA5
+                        && vk != 0x5B
+                        && vk != 0x5C
+                    {
                         if let Some(key_name) = vk_to_key(vk) {
                             let _ = app_handle.emit("key-captured", key_name);
                         }
@@ -2912,12 +3168,7 @@ fn start_hotkey_listener(app_handle: AppHandle) {
 
         // Install low-level keyboard hook for F12 as fallback
         unsafe {
-            let hook = SetWindowsHookExW(
-                WH_KEYBOARD_LL,
-                Some(low_level_keyboard_proc),
-                None,
-                0,
-            );
+            let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), None, 0);
 
             if hook.is_err() {
                 app_error!("Failed to install low-level keyboard hook for F12");
@@ -2959,8 +3210,8 @@ fn start_hotkey_listener(app_handle: AppHandle) {
                 }
 
                 // Dispatch other messages (needed for low-level hook to work)
-                windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
-                windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
+                let _ = TranslateMessage(&msg);
+                let _ = DispatchMessageW(&msg);
             }
         }
     });
@@ -2982,27 +3233,31 @@ fn set_high_priority() {
 // Live MIDI Input Commands
 // ============================================================================
 
-use midi_input::{MidiConnectionState, LiveNoteEvent};
+use midi_input::{LiveNoteEvent, MidiConnectionState};
 
 /// List available MIDI input devices
 #[tauri::command]
 async fn list_midi_input_devices(
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<Vec<String>, String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let midi_state = app_state.get_midi_input_state();
-    let mut midi_state_guard = midi_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut midi_state_guard = midi_state
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     Ok(midi_input::list_midi_devices(&mut midi_state_guard))
 }
 
 /// Get current MIDI connection state
 #[tauri::command]
 async fn get_midi_connection_state(
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<MidiConnectionState, String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let midi_state = app_state.get_midi_input_state();
-    let midi_state_guard = midi_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let midi_state_guard = midi_state
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     Ok(midi_state_guard.get_state())
 }
 
@@ -3011,7 +3266,7 @@ async fn get_midi_connection_state(
 async fn start_midi_listening(
     device_index: usize,
     state: State<'_, Arc<Mutex<AppState>>>,
-    app_handle: AppHandle
+    app_handle: AppHandle,
 ) -> Result<String, String> {
     // First stop any file playback (exclusive mode)
     {
@@ -3045,7 +3300,7 @@ async fn start_midi_listening(
 #[tauri::command]
 async fn stop_midi_listening(
     state: State<'_, Arc<Mutex<AppState>>>,
-    app_handle: AppHandle
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let midi_state = app_state.get_midi_input_state();
@@ -3056,18 +3311,18 @@ async fn stop_midi_listening(
 
 /// Check if live mode is active
 #[tauri::command]
-async fn is_live_mode_active(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<bool, String> {
+async fn is_live_mode_active(state: State<'_, Arc<Mutex<AppState>>>) -> Result<bool, String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    Ok(app_state.is_live_mode_active.load(std::sync::atomic::Ordering::SeqCst))
+    Ok(app_state
+        .is_live_mode_active
+        .load(std::sync::atomic::Ordering::SeqCst))
 }
 
 /// Set live mode transpose
 #[tauri::command]
 async fn set_live_transpose(
     value: i8,
-    state: State<'_, Arc<Mutex<AppState>>>
+    state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     app_state.set_live_transpose(value);
@@ -3076,11 +3331,11 @@ async fn set_live_transpose(
 
 /// Get live mode transpose
 #[tauri::command]
-async fn get_live_transpose(
-    state: State<'_, Arc<Mutex<AppState>>>
-) -> Result<i8, String> {
+async fn get_live_transpose(state: State<'_, Arc<Mutex<AppState>>>) -> Result<i8, String> {
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    Ok(app_state.live_transpose.load(std::sync::atomic::Ordering::SeqCst))
+    Ok(app_state
+        .live_transpose
+        .load(std::sync::atomic::Ordering::SeqCst))
 }
 
 /// DEV: Simulate a MIDI note press (for testing without hardware)
@@ -3089,7 +3344,7 @@ async fn simulate_midi_note(
     midi_note: u8,
     state: State<'_, Arc<Mutex<AppState>>>,
     app_handle: AppHandle,
-) -> Result<midi_input::LiveNoteEvent, String> {
+) -> Result<LiveNoteEvent, String> {
     use std::sync::atomic::Ordering;
 
     let app_state = state.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -3107,11 +3362,17 @@ async fn simulate_midi_note(
     let key = midi_input::map_note_to_key(midi_note as i32, total_transpose, note_mode, key_mode);
 
     // Get note name
-    let note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    let note_name = format!("{}{}", note_names[(midi_note % 12) as usize], (midi_note / 12) as i32 - 1);
+    let note_names = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let note_name = format!(
+        "{}{}",
+        note_names[(midi_note % 12) as usize],
+        (midi_note / 12) as i32 - 1
+    );
 
     // Create event for frontend
-    let event = midi_input::LiveNoteEvent {
+    let event = LiveNoteEvent {
         midi_note,
         key: key.clone(),
         note_name: note_name.clone(),
