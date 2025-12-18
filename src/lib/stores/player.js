@@ -2,6 +2,7 @@ import { writable, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { calculateProgress } from '../utils/playerStats.js';
 
 // Player state
 export const isPlaying = writable(false);
@@ -611,17 +612,10 @@ export async function loadPlaylistToQueue(playlistId, autoPlay = true) {
 // Derived states
 export const progress = derived(
   [currentPosition, totalDuration],
-  ([$position, $duration]) => {
-    if ($duration === 0) return 0;
-    return ($position / $duration) * 100;
-  }
+  ([$position, $duration]) => calculateProgress($position, $duration)
 );
 
-export const formatTime = (seconds) => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
+export { formatTime } from '../utils/playerStats.js';
 
 // Check library size and cache status
 export async function getLibraryInfo() {

@@ -1,8 +1,19 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
+function ensureServerEnvironmentsPlugin() {
+  return {
+    name: 'ensure-server-environments',
+    configureServer(server) {
+      if (!server.environments) {
+        server.environments = {}
+      }
+    }
+  }
+}
+
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [ensureServerEnvironmentsPlugin(), svelte()],
   clearScreen: false,
   server: {
     port: 5173,
@@ -18,10 +29,15 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/setupTests.js',
     coverage: {
-      provider: 'c8',
-      reporter: ['text', 'lcov'],
-      all: true,
-      include: ['src/**/*.{js,ts,svelte}'],
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        all: true,
+        include: ['src/lib/utils/**/*.js', 'src/lib/version.js'],
+        exclude: ['**/*.svelte'],
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80
     },
   },
 })

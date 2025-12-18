@@ -19,15 +19,17 @@
     "@iconify/svelte": "^5.1.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tauri-apps/cli": "^2.9.4",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/svelte": "^5.2.9",
     "@types/bun": "latest",
+    "@vitest/coverage-v8": "^1.6.1",
     "autoprefixer": "^10.4.22",
+    "jsdom": "^27.3.0",
     "postcss": "^8.5.6",
     "svelte": "^5.43.14",
     "tailwindcss": "^3.4.14",
     "vite": "^7.2.4",
-    "vitest": "^1.6.2",
-    "@testing-library/jest-dom": "^6.0.0",
-    "@testing-library/svelte": "^4.6.0"
+    "vitest": "^1.6.1"
   },
   "peerDependencies": {
     "typescript": "^5"
