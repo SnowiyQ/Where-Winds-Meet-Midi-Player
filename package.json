@@ -12,8 +12,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "coverage:check": "node scripts/check-coverage.js",
+    "postinstall": "npm run build",
     "tauri": "tauri",
+    "pretauri-dev": "npm run build",
     "tauri-dev": "tauri dev",
+    "pretauri-build": "npm run build",
     "tauri-build": "tauri build"
   },
   "devDependencies": {
