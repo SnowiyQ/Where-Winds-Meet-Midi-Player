@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => {
         provider: 'v8',
         reporter: ['text', 'lcov'],
         all: true,
-        include: ['src/lib/**/*.js'],
+        include: ['src/**/*.{js,ts,svelte}', 'src-tauri/**/*.{js,ts,svelte}'],
         exclude: [
           'node_modules/**',
           'src/lib/components/**',

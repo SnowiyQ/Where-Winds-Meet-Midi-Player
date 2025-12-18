@@ -1,23 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import enLocale from '../lib/i18n/locales/en.json'
 
-const registerMock = vi.fn()
-const initMock = vi.fn()
-const localeSetMock = vi.fn()
-const waitLocaleMock = vi.fn(() => Promise.resolve())
+vi.mock('svelte-i18n', () => {
+  const register = vi.fn()
+  const init = vi.fn()
+  const locale = { set: vi.fn() }
+  const waitLocale = vi.fn(() => Promise.resolve())
 
-vi.mock('svelte-i18n', () => ({
-  register: registerMock,
-  init: initMock,
-  locale: { set: localeSetMock },
-  waitLocale: waitLocaleMock,
-  t: vi.fn(),
-}))
+  return {
+    register,
+    init,
+    locale,
+    waitLocale,
+    t: vi.fn(),
+  }
+})
 
-const invokeMock = vi.fn(() => Promise.resolve(null))
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: invokeMock,
+  invoke: vi.fn(() => Promise.resolve(null)),
 }))
+
+import { register, init, locale, waitLocale } from 'svelte-i18n'
+import { invoke } from '@tauri-apps/api/core'
 
 import {
   deepMerge,
@@ -28,6 +32,12 @@ import {
   getLocalesPath,
   reloadCurrentLocale,
 } from '../lib/i18n/index.js'
+
+const registerMock = vi.mocked(register)
+const initMock = vi.mocked(init)
+const localeSetMock = vi.mocked(locale.set)
+const waitLocaleMock = vi.mocked(waitLocale)
+const invokeMock = vi.mocked(invoke)
 
 describe('i18n helpers', () => {
   beforeEach(() => {
