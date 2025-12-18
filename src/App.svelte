@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { fade, fly, scale } from "svelte/transition";
   import { listen } from "@tauri-apps/api/event";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "./lib/tauri/core-proxy.js";
   import { onDestroy } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";

@@ -2,7 +2,7 @@
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
   import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "../tauri/core-proxy.js";
   import { t } from "svelte-i18n";
   import {
     midiInputDevices,

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-vi.mock('@tauri-apps/api/core', () => ({
+vi.mock('../../lib/tauri/core-proxy.js', () => ({
   invoke: vi.fn(() => Promise.resolve({})),
 }))
 vi.mock('@tauri-apps/api/event', () => ({
@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   },
 }))
 
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from '../../lib/tauri/core-proxy.js'
 
 import {
   addPlaytime,

@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "../tauri/core-proxy.js";
   import { t } from "svelte-i18n";
   import { currentFile, isPlaying, isPaused, currentPosition } from "../stores/player.js";
 

@@ -2,12 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "npm: dev",
+      "name": "tauri dev",
       "type": "pwa-node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "tauri-dev"],
       "console": "integratedTerminal",
       "env": {
         "BROWSERSLIST_ENV": "development"

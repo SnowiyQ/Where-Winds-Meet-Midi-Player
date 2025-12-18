@@ -4,7 +4,7 @@
   import { flip } from "svelte/animate";
   import { dndzone } from "svelte-dnd-action";
   import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "../tauri/core-proxy.js";
   import { save, open } from "@tauri-apps/plugin-dialog";
   import { t } from "svelte-i18n";
   import {

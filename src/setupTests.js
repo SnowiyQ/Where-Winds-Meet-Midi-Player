@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({
+vi.mock('./lib/tauri/core-proxy.js', () => ({
 	invoke: () => Promise.resolve(null),
-}));
+}))
 
 const storage = new Map();
 globalThis.localStorage = {

@@ -1,7 +1,7 @@
 <script>
   import Icon from "@iconify/svelte";
   import { fade, fly } from "svelte/transition";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "../tauri/core-proxy.js";
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";

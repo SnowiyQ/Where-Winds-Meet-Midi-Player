@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri/core-proxy.js';
 import Peer from 'peerjs';
 
 // Import player stores for syncing

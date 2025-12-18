@@ -1,5 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../tauri/core-proxy.js';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { calculateProgress } from '../utils/playerStats.js';

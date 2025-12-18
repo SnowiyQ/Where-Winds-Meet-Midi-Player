@@ -16,12 +16,12 @@ vi.mock('svelte-i18n', () => {
   }
 })
 
-vi.mock('@tauri-apps/api/core', () => ({
+vi.mock('../lib/tauri/core-proxy.js', () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }))
 
 import { register, init, locale, waitLocale } from 'svelte-i18n'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from '../lib/tauri/core-proxy.js'
 
 import {
   deepMerge,

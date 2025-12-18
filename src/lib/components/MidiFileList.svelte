@@ -3,7 +3,7 @@
   import { fade, fly } from "svelte/transition";
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invoke } from "../tauri/core-proxy.js";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { t } from "svelte-i18n";
   import {
