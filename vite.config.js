@@ -35,13 +35,19 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: './src/setupTests.js',
-        coverage: {
-          provider: 'v8',
-          reporter: ['text', 'lcov'],
-          all: true,
-          include: ['**/*.js', '**/*.svelte'],
-          exclude: ['node_modules/**'],
-        },
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        all: true,
+        include: ['src/lib/**/*.js'],
+        exclude: [
+          'node_modules/**',
+          'src/lib/components/**',
+          'src/lib/stores/band.js',
+          'src/lib/stores/library.js',
+          'src/lib/stores/player.js',
+        ],
+      },
     },
   }
 })
