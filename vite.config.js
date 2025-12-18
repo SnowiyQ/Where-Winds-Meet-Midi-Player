@@ -12,29 +12,30 @@ function ensureServerEnvironmentsPlugin() {
   }
 }
 
-/* set githup secret "VITEST" as `false` to skip test runs during ci. */
-const isTest = process.env.VITEST === 'true' ?? true;
-const defaultPlugins = [ensureServerEnvironmentsPlugin()]
-if (!isTest) {
-  defaultPlugins.push(svelte())
-}
-export default defineConfig({
-  plugins: defaultPlugins,
-  clearScreen: false,
-  server: {
-    port: 5173,
-    strictPort: true,
-  },
-  build: {
-    target: 'esnext',
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/setupTests.js',
-    coverage: {
+export default defineConfig(({ command }) => {
+  const isTest = command === 'test'
+  const plugins = [ensureServerEnvironmentsPlugin()]
+  if (!isTest) {
+    plugins.push(svelte())
+  }
+
+  return {
+    plugins,
+    clearScreen: false,
+    server: {
+      port: 5173,
+      strictPort: true,
+    },
+    build: {
+      target: 'esnext',
+      minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+      sourcemap: !!process.env.TAURI_DEBUG,
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: './src/setupTests.js',
+      coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
         all: true,
@@ -44,6 +45,7 @@ export default defineConfig({
         branches: 80,
         functions: 80,
         lines: 80
+      },
     },
-  },
+  }
 })
