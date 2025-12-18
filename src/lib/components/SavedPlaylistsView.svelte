@@ -417,9 +417,9 @@
               <Icon icon="mdi:file-alert" class="w-5 h-5 text-red-400" title={$t("playlists.fileMissing")} />
             {:else if isPlayingTrack}
               <div class="flex items-end gap-0.5 h-4">
-                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 60%; animation: music-bar-1 0.6s ease-in-out infinite;"></div>
-                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 100%; animation: music-bar-2 0.8s ease-in-out infinite;"></div>
-                <div class="w-0.5 bg-[#1db954] rounded-full" style="height: 80%; animation: music-bar-3 0.7s ease-in-out infinite;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-1" style="height: 60%;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-2" style="height: 100%;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-3" style="height: 80%;"></div>
               </div>
             {:else}
               <span class="text-sm text-white/40 {isCurrentTrack ? 'text-[#1db954] font-semibold' : ''} group-hover:hidden">{index + 1}</span>
@@ -795,21 +795,3 @@
 
 <SongContextMenu {contextMenu} onClose={() => contextMenu = null} />
 
-<style>
-  :global(.spotify-card) {
-    outline: none !important;
-  }
-
-  @keyframes music-bar-1 {
-    0%, 100% { height: 20%; }
-    50% { height: 80%; }
-  }
-  @keyframes music-bar-2 {
-    0%, 100% { height: 60%; }
-    50% { height: 100%; }
-  }
-  @keyframes music-bar-3 {
-    0%, 100% { height: 40%; }
-    50% { height: 90%; }
-  }
-</style>

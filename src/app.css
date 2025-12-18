@@ -72,6 +72,7 @@
 
   .spotify-card {
     @apply bg-[#181818] rounded-lg p-4 transition-all duration-200 hover:bg-[#282828] cursor-pointer;
+    outline: none;
   }
 
   .spotify-card--active {
@@ -103,172 +104,55 @@
     @apply w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-white/10 text-white/70 hover:text-white active:scale-95;
   }
 
-  /* Music bar animations */
-  @keyframes music-bar-1 {
-
-    0%,
-    100% {
-      height: 60%;
-    }
-
-    50% {
-      height: 20%;
-    }
-  }
-
-  @keyframes music-bar-2 {
-
-    0%,
-    100% {
-      height: 100%;
-    }
-
-    50% {
-      height: 40%;
-    }
-  }
-
-  @keyframes music-bar-3 {
-
-    0%,
-    100% {
-      height: 80%;
-    }
-
-    50% {
-      height: 30%;
-    }
-  }
-
-  /* Pulse animation for playing indicator */
-  @keyframes pulse-glow {
-
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.4);
-    }
-
-    50% {
-      box-shadow: 0 0 0 8px rgba(29, 185, 84, 0);
-    }
-  }
-
   .pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
-  }
-
-  /* Fade in animation */
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    @apply animate-pulse-glow;
   }
 
   .animate-fade-in {
-    animation: fade-in 0.3s ease-out forwards;
-  }
-
-  /* Slide animations */
-  @keyframes slide-up {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes slide-down {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    @apply animate-fade-in;
   }
 
   .animate-slide-up {
-    animation: slide-up 0.3s ease-out forwards;
+    @apply animate-slide-up;
   }
 
   .animate-slide-down {
-    animation: slide-down 0.3s ease-out forwards;
-  }
-
-  /* Scale animation for buttons */
-  @keyframes scale-in {
-    from {
-      transform: scale(0.95);
-      opacity: 0;
-    }
-
-    to {
-      transform: scale(1);
-      opacity: 1;
-    }
+    @apply animate-slide-down;
   }
 
   .animate-scale-in {
-    animation: scale-in 0.2s ease-out forwards;
-  }
-
-  /* Shimmer effect for loading states */
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-
-    100% {
-      background-position: 200% 0;
-    }
+    @apply animate-scale-in;
   }
 
   .shimmer {
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    @apply animate-shimmer;
   }
 
-  /* Dragging styles */
   .dragging {
     @apply opacity-50 scale-105;
   }
 
   .drag-over {
-    @apply ring-2 ring-[#1db954] ring-offset-2 ring-offset-[#121212];
+    @apply ring-2 ring-spotify-green ring-offset-2 ring-offset-spotify-dark;
   }
 
-  /* Focus styles */
   *:focus-visible {
-    @apply outline-none ring-2 ring-[#1db954] ring-offset-2 ring-offset-[#121212];
+    @apply outline-none ring-2 ring-spotify-green ring-offset-2 ring-offset-spotify-dark;
   }
 
-  /* Tooltip styles */
   [title] {
     position: relative;
   }
 
-  /* Gradient text */
   .gradient-text {
-    background: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+    @apply bg-spotify-gradient bg-clip-text text-transparent;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
-  /* Scroll masks for clipped content */
   .scroll-mask-top {
     mask-image: linear-gradient(to bottom, transparent 0%, black 5%);
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 5%);
@@ -285,14 +169,16 @@
   }
 }
 
-/* Global transition defaults - excluding width to prevent progress bar jitter */
-*:not([role="progressbar"] *) {
-  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
+@layer utilities {
+  /* Global transition defaults - excluding width to prevent progress bar jitter */
+  *:not([role="progressbar"] *) {
+    transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
-/* Progress bar should not have transitions to prevent jitter */
-[role="progressbar"] *,
-[role="progressbar"] {
-  transition: none !important;
+  /* Progress bar should not have transitions to prevent jitter */
+  [role="progressbar"] *,
+  [role="progressbar"] {
+    transition: none !important;
+  }
 }

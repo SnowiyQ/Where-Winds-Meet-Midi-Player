@@ -187,18 +187,9 @@
             {#if $currentFile === item.path && $isPlaying && !$isPaused}
               <!-- Playing indicator (animated bars) -->
               <div class="flex items-end gap-0.5 h-4">
-                <div
-                  class="w-0.5 bg-[#1db954] rounded-full"
-                  style="height: 60%; animation: music-bar-1 0.6s ease-in-out infinite;"
-                ></div>
-                <div
-                  class="w-0.5 bg-[#1db954] rounded-full"
-                  style="height: 100%; animation: music-bar-2 0.8s ease-in-out infinite;"
-                ></div>
-                <div
-                  class="w-0.5 bg-[#1db954] rounded-full"
-                  style="height: 80%; animation: music-bar-3 0.7s ease-in-out infinite;"
-                ></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-1" style="height: 60%;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-2" style="height: 100%;"></div>
+                <div class="w-0.5 bg-[#1db954] rounded-full animate-music-bar-3" style="height: 80%;"></div>
               </div>
             {:else}
               <span
