@@ -3,6 +3,7 @@ import { invoke } from '../tauri/core-proxy.js';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { calculateProgress } from '../utils/playerStats.js';
+import { logUiAction } from '../utils/uiActionLogger.js';
 
 // Player state
 export const isPlaying = writable(false);
@@ -647,6 +648,8 @@ export async function shouldShowLibraryWarning() {
 // Load MIDI files from album folder (streaming for large libraries)
 // limit: max files to load (0 = all), append: whether to append to existing
 export async function loadMidiFiles(limit = 0, append = false) {
+  const actionContext = { limit, append };
+  logUiAction('loadMidiFiles', 'started', actionContext);
   try {
     isLoadingMidi.set(true);
     midiLoadProgress.set({ loaded: 0, total: 0 });
@@ -705,6 +708,10 @@ export async function loadMidiFiles(limit = 0, append = false) {
           })();
 
           // Clean up and resolve
+          logUiAction('loadMidiFiles', 'completed', {
+            ...actionContext,
+            loaded: collectedFiles.length
+          });
           unlisten();
           resolve();
         }
@@ -733,6 +740,10 @@ export async function loadMidiFiles(limit = 0, append = false) {
     });
   } catch (error) {
     console.error('Failed to load MIDI files:', error);
+    logUiAction('loadMidiFiles', 'error', {
+      ...actionContext,
+      error: error?.message || error
+    });
     isLoadingMidi.set(false);
   }
 }
@@ -754,13 +765,23 @@ export async function loadAllFiles() {
 
 // Import a MIDI file to album folder
 export async function importMidiFile(sourcePath) {
+  const actionContext = { sourcePath };
+  logUiAction('importMidiFile', 'started', actionContext);
   try {
     const newFile = await invoke('import_midi_file', { sourcePath });
     // Add to midiFiles store
     midiFiles.update(files => [...files, newFile]);
+    logUiAction('importMidiFile', 'completed', {
+      ...actionContext,
+      file: newFile?.path || newFile?.name || null
+    });
     return { success: true, file: newFile };
   } catch (error) {
     console.error('Failed to import MIDI file:', error);
+    logUiAction('importMidiFile', 'error', {
+      ...actionContext,
+      error: error?.message || error
+    });
     return { success: false, error: error.toString() };
   }
 }
@@ -768,15 +789,23 @@ export async function importMidiFile(sourcePath) {
 // Load available tracks for a MIDI file
 export async function loadTracksForFile(path) {
   if (!path) {
+    logUiAction('loadTracksForFile', 'warn', { reason: 'missing_path' });
     availableTracks.set([]);
     return [];
   }
+  const actionContext = { path };
+  logUiAction('loadTracksForFile', 'started', actionContext);
   try {
     const tracks = await invoke('get_midi_tracks', { path });
     availableTracks.set(tracks);
+    logUiAction('loadTracksForFile', 'completed', actionContext);
     return tracks;
   } catch (error) {
     console.error('Failed to load tracks:', error);
+    logUiAction('loadTracksForFile', 'error', {
+      ...actionContext,
+      error: error?.message || error
+    });
     availableTracks.set([]);
     return [];
   }
@@ -795,6 +824,8 @@ export const missingFiles = writable(new Set());
 
 // Play a MIDI file
 export async function playMidi(path) {
+  const actionContext = { path };
+  logUiAction('playMidi', 'started', actionContext);
   try {
     delaySmartPause();
 
@@ -837,18 +868,24 @@ export async function playMidi(path) {
     // Track stats
     const filename = path.split(/[\\/]/).pop() || path;
     trackSongPlay(filename);
+    logUiAction('playMidi', 'completed', actionContext);
   } catch (error) {
     console.error('Failed to play MIDI:', error);
+    logUiAction('playMidi', 'error', {
+      ...actionContext,
+      error: error?.message || error
+    });
   }
 }
 
 // Play a MIDI file for band mode with split/track options
 export async function playMidiBand(file, options = {}) {
+  const path = typeof file === 'string' ? file : file.path;
+  const { mode = 'split', slot = 0, totalPlayers = 1, trackId = null } = options;
+  const actionContext = { path, mode, slot, totalPlayers, trackId };
+  logUiAction('playMidiBand', 'started', actionContext);
   try {
     delaySmartPause();
-
-    const path = typeof file === 'string' ? file : file.path;
-    const { mode = 'split', slot = 0, totalPlayers = 1, trackId = null } = options;
 
     // Reset state immediately before playing
     currentPosition.set(0);
@@ -874,8 +911,13 @@ export async function playMidiBand(file, options = {}) {
     // Track stats
     const filename = path.split(/[\\/]/).pop() || path;
     trackSongPlay(filename);
+    logUiAction('playMidiBand', 'completed', actionContext);
   } catch (error) {
     console.error('Failed to play MIDI in band mode:', error);
+    logUiAction('playMidiBand', 'error', {
+      ...actionContext,
+      error: error?.message || error
+    });
   }
 }
 

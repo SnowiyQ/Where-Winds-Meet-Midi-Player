@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { invoke } from '../tauri/core-proxy.js';
 import Peer from 'peerjs';
+import { logUiAction } from '../utils/uiActionLogger.js';
 
 // Discovery server URL (configurable in developer mode)
 export const discoveryServerUrl = writable('https://discovery.chuaii.me');
@@ -103,10 +104,19 @@ function getDisplayName() {
 
 // Connect to library (discovery server + PeerJS)
 export async function connectLibrary() {
-  if (peer) return;
+  if (peer) {
+    logUiAction('library.connect', 'warn', { reason: 'already_connected' });
+    return;
+  }
 
   const enabled = get(libraryEnabled);
-  if (!enabled) return;
+  if (!enabled) {
+    logUiAction('library.connect', 'warn', { reason: 'disabled' });
+    return;
+  }
+
+  const actionContext = { server: getServerUrl(), shareAll: get(shareAll) };
+  logUiAction('library.connect', 'started', actionContext);
 
   const myName = localStorage.getItem('libraryName') || getDisplayName();
   localStorage.setItem('libraryName', myName);
@@ -126,6 +136,12 @@ export async function connectLibrary() {
         libraryConnected.set(true);
         libraryError.set(null);
 
+        logUiAction('library.connect', 'completed', {
+          ...actionContext,
+          peerId: id,
+          registered: true
+        });
+
         // Start heartbeat and fetch intervals
         startHeartbeat();
         startFetchInterval();
@@ -134,6 +150,11 @@ export async function connectLibrary() {
         await fetchGlobalSongs();
       } else {
         libraryError.set('Cannot connect to discovery server');
+        logUiAction('library.connect', 'error', {
+          ...actionContext,
+          peerId: id,
+          reason: 'registration_failed'
+        });
       }
     });
 
@@ -162,6 +183,10 @@ export async function connectLibrary() {
 
   } catch (err) {
     console.error('[LIBRARY] Failed to connect:', err);
+    logUiAction('library.connect', 'error', {
+      ...actionContext,
+      error: err?.message || err
+    });
     libraryError.set(err.toString());
   }
 }
@@ -362,12 +387,22 @@ async function handleSongRequest(hash, conn, peerName = 'Someone') {
 
 // Request a song from a peer (P2P download)
 export async function requestSong(peerId, hash, songName) {
+  const actionContext = {
+    peerId,
+    hash,
+    songName
+  };
   if (!peer) {
     libraryError.set('Not connected');
+    logUiAction('library.requestSong', 'error', {
+      ...actionContext,
+      reason: 'not_connected'
+    });
     return false;
   }
 
   downloadProgress.set({ songName, progress: 10, status: 'Connecting...' });
+  logUiAction('library.requestSong', 'started', actionContext);
 
   try {
     const conn = peer.connect(peerId);
@@ -376,6 +411,10 @@ export async function requestSong(peerId, hash, songName) {
       const timeout = setTimeout(() => {
         downloadProgress.set(null);
         libraryError.set('Connection timeout');
+        logUiAction('library.requestSong', 'error', {
+          ...actionContext,
+          reason: 'timeout'
+        });
         resolve(false);
       }, 15000);
 
@@ -389,12 +428,20 @@ export async function requestSong(peerId, hash, songName) {
         clearTimeout(timeout);
 
         if (data.type === 'song_data') {
+          logUiAction('library.requestSong', 'completed', {
+            ...actionContext,
+            response: 'song_data'
+          });
           await handleSongData(data);
           conn.close();
           resolve(true);
         } else if (data.type === 'song_error') {
           downloadProgress.set(null);
           libraryError.set(data.error);
+          logUiAction('library.requestSong', 'error', {
+            ...actionContext,
+            error: data.error
+          });
           conn.close();
           resolve(false);
         }
