@@ -4,5 +4,5 @@ param(
     [string]$WorkingDirectory = (Join-Path (Split-Path -Parent (Resolve-Path $MyInvocation.MyCommand.Definition)) '..')
 )
 
-$escapedCommand = "cd \"$WorkingDirectory\"; $Command"
+ $escapedCommand = "cd '$WorkingDirectory'; $Command"
 Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-Command', $escapedCommand -Verb RunAs
