@@ -2,7 +2,7 @@
 
 use log::info;
 use rayon::prelude::*;
-use simplelog::{Config, ConfigBuilder, LevelFilter, WriteLogger};
+use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 
