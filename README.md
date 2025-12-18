@@ -474,3 +474,11 @@ wwm-overlay/
 │   ├── song2.mid
 │   └── song3.mid
 └── ...
+```
+
+## 🧪 Testing
+
+- `npm run test` - run the Vitest suite once (global jest-dom helpers are preloaded via src/setupTests.js).
+- `npm run test:watch` - keep Vitest in watch mode while you edit.
+- `npm run test:coverage` - emit coverage reports (text + lcov.info) via the built-in c8 provider; the report is saved under coverage/.
+
