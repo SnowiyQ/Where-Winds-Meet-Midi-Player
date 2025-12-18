@@ -12,8 +12,14 @@ function ensureServerEnvironmentsPlugin() {
   }
 }
 
+/* set githup secret "VITEST" as `false` to skip test runs during ci. */
+const isTest = process.env.VITEST === 'true' ?? true;
+const defaultPlugins = [ensureServerEnvironmentsPlugin()]
+if (!isTest) {
+  defaultPlugins.push(svelte())
+}
 export default defineConfig({
-  plugins: [ensureServerEnvironmentsPlugin(), svelte()],
+  plugins: defaultPlugins,
   clearScreen: false,
   server: {
     port: 5173,
