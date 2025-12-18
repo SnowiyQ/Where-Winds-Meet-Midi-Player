@@ -16,4 +16,7 @@ globalThis.localStorage = {
 	removeItem(key) {
 		storage.delete(key);
 	},
+	clear() {
+		storage.clear();
+	},
 };

@@ -1,22 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-const __testStorage = {}
-globalThis.localStorage = {
-  getItem(key) {
-    return Object.prototype.hasOwnProperty.call(__testStorage, key) ? __testStorage[key] : null
-  },
-  setItem(key, value) {
-    __testStorage[key] = String(value)
-  },
-  removeItem(key) {
-    delete __testStorage[key]
-  },
-  clear() {
-    Object.keys(__testStorage).forEach((key) => delete __testStorage[key])
-  },
-}
-
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(() => Promise.resolve({})),
 }))

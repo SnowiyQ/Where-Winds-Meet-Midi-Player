@@ -177,5 +177,6 @@ init({
   initialLocale: getInitialLocale(),
 });
 
+export { deepMerge, hasNewKeys, loadLocaleWithUserOverrides };
 // Export for convenience
 export { t, locale, waitLocale } from 'svelte-i18n';
