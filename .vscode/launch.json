@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "npm: dev",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "env": {
+        "BROWSERSLIST_ENV": "development"
+      },
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}
