@@ -1,3 +1,28 @@
+## 🛠 Project Status & Maintenance
+
+> **Status: Maintenance Mode**
+
+This project is **no longer under active feature development** as I’m currently focused on other private work.  
+However, the project is **stable** and **still usable**, and I intend to keep it available.
+
+### What this means
+- Bug fixes are welcome  
+- Small improvements and refactors are welcome  
+- New feature requests may be slow, limited, or declined  
+- PR reviews may take time, but they won’t be ignored
+
+### 🤝 Looking for Co-Maintainers
+
+I’m open to adding **co-maintainers** to help keep the project healthy.
+
+If you:
+- Use this project regularly
+- Have contributed before (or want to)
+- Are comfortable with Rust / Tauri / Svelte
+
+👉 Please **open an issue** with a short intro and how you’d like to help.  
+I’m happy to delegate review or merge access to trusted contributors.
+
 # WWM Overlay – MIDI Music Player
 
 A beautiful, feature-rich MIDI music player for **Where Winds Meet** that plays your songs by automatically pressing the correct keyboard keys in-game.
