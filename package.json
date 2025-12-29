@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "coverage:check": "node scripts/check-coverage.js",
-    "postinstall": "node -e \"if(process.env.CI){console.log('CI detected: skipping postinstall build');process.exit(0);}require('child_process').execSync('npm run build',{stdio:'inherit'});\"",
+    "postinstall": "npm run build",
     "tauri": "tauri",
     "pretauri-dev": "npm run build",
     "tauri-dev": "tauri dev",
