@@ -1,0 +1,28 @@
+{
+  "folders": [
+    { "path": "." }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "files.exclude": {
+      "**/.DS_Store": true,
+      "**/node_modules": false
+    },
+    "eslint.validate": [
+      "javascript",
+      "typescript",
+      "svelte"
+    ]
+  },
+  "extensions": {
+    "recommendations": [
+      "svelte.svelte-vscode",
+      "pivaszbs.svelte-autoimport",
+      "meinhartthomas.sveltekit-navigator",
+      "rust-lang.rust-analyzer",
+      "panicbit.cargo",
+      "swellaby.vscode-rust-test-adapter",
+      "tauri-apps.tauri-vscode"
+    ]
+  }
+}
