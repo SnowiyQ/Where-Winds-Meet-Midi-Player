@@ -2044,6 +2044,22 @@ async fn save_window_position(x: i32, y: i32, width: u32, height: u32) -> Result
 }
 
 #[tauri::command]
+async fn get_game_window_bounds() -> Result<Option<WindowPosition>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some((x, y, width, height)) = keyboard::get_game_window_rect() {
+            return Ok(Some(WindowPosition {
+                x,
+                y,
+                width: width as u32,
+                height: height as u32,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
 async fn get_always_on_top() -> Result<bool, String> {
     let config = load_config();
     Ok(config["always_on_top"].as_bool().unwrap_or(true))
@@ -3492,6 +3508,7 @@ fn main() {
             delete_midi_file,
             open_file_location,
             get_window_position,
+            get_game_window_bounds,
             save_window_position,
             get_always_on_top,
             save_always_on_top,
