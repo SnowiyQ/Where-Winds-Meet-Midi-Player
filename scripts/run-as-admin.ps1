@@ -1,7 +1,7 @@
 # Starts an elevated PowerShell that runs the provided command in the repo root and keeps the window open.
 param(
-        [string]$Command = 'npm run tauri-dev',
-        [string]$WorkingDirectory = (Join-Path (Split-Path -Parent (Resolve-Path $MyInvocation.MyCommand.Definition)) '..')
+    [string]$Command = 'npm run tauri-dev',
+    [string]$WorkingDirectory = (Join-Path (Split-Path -Parent (Resolve-Path $MyInvocation.MyCommand.Definition)) '..')
 )
 
 $scriptBlock = @"
