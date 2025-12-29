@@ -1,0 +1,82 @@
+name: Release on Main
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-main-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    name: Build and draft release
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    env:
+      TAG_NAME: main-${{ github.run_number }}
+      RELEASE_NAME: Nightly main build ${{ github.run_number }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun.js
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Tauri app
+        run: bun run tauri-build
+
+      - name: Create album folder in bundle
+        shell: pwsh
+        run: |
+          $bundlePath = "src-tauri/target/release"
+          if (Test-Path $bundlePath) {
+            New-Item -Path "$bundlePath/album" -ItemType Directory -Force
+            Write-Host "Created album folder at $bundlePath/album"
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wwm-overlay-windows-main
+          path: |
+            src-tauri/target/release/wwm-overlay.exe
+            src-tauri/target/release/album/
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.RELEASE_NAME }}
+          prerelease: true
+          files: src-tauri/target/release/wwm-overlay.exe
+          body: |
+            ## Notes
+            Nightly build from main (${{ github.sha }}).
+            ## Installation
+            1. Download `wwm-overlay.exe`
+            2. Create a folder for the app
+            3. Create an `album` folder next to the exe
+            4. Add your `.mid` files to the album folder
+            5. Run the app!
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
