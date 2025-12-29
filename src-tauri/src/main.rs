@@ -2051,8 +2051,8 @@ async fn get_game_window_bounds() -> Result<Option<WindowPosition>, String> {
             return Ok(Some(WindowPosition {
                 x,
                 y,
-                width: width.max(0) as u32,
-                height: height.max(0) as u32,
+                width: width as u32,
+                height: height as u32,
             }));
         }
     }
