@@ -55,8 +55,8 @@ export async function restoreWindowBounds(defaultSize = { width: 1180, height: 6
       target = {
         x: Math.round(gameBounds.x + saved.relative.x * gameBounds.width),
         y: Math.round(gameBounds.y + saved.relative.y * gameBounds.height),
-        width: Math.max(0, Math.round(saved.relative.width * gameBounds.width)),
-        height: Math.max(0, Math.round(saved.relative.height * gameBounds.height))
+        width: Math.max(64, Math.round(saved.relative.width * gameBounds.width)),
+        height: Math.max(64, Math.round(saved.relative.height * gameBounds.height))
       }
     }
   } catch (error) {
