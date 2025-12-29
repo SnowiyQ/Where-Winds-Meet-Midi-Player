@@ -9,8 +9,8 @@ export async function rememberWindowBoundsRelativeToGame() {
   try {
     const appWindow = getCurrentWindow()
     const [pos, size, gameBounds] = await Promise.all([
-      appWindow.outerPosition(),
-      appWindow.outerSize(),
+      appWindow.innerPosition(),
+      appWindow.innerSize(),
       invoke('get_game_window_bounds')
     ])
 
