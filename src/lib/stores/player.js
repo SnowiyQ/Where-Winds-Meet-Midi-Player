@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { calculateProgress } from '../utils/playerStats.js';
 import { logUiAction } from '../utils/uiActionLogger.js';
+import { rememberWindowBoundsRelativeToGame, restoreWindowBounds } from './windowState.js';
 
 // Player state
 export const isPlaying = writable(false);
@@ -79,9 +80,6 @@ export const midiConnectionState = writable('NoDevices'); // NoDevices, DevicesA
 export const liveTranspose = writable(0);
 export const lastLiveNote = writable(null); // { midiNote, key, noteName, velocity }
 
-// Store previous window size/position for restore
-let previousWindowState = null;
-
 // Toggle mini mode with window resize
 export async function toggleMiniMode() {
   const currentMiniMode = get(miniMode);
@@ -90,14 +88,7 @@ export async function toggleMiniMode() {
   if (!currentMiniMode) {
     // Entering mini mode - save current state and resize
     try {
-      const size = await appWindow.innerSize();
-      const position = await appWindow.innerPosition();
-      previousWindowState = {
-        width: size.width,
-        height: size.height,
-        x: position.x,
-        y: position.y
-      };
+      await rememberWindowBoundsRelativeToGame();
 
       // Set to mini size (64x88 for the floating icon + drag handle)
       await appWindow.setMinSize(new LogicalSize(64, 88));
@@ -109,11 +100,7 @@ export async function toggleMiniMode() {
     // Exiting mini mode - restore previous state
     try {
       await appWindow.setMinSize(new LogicalSize(960, 540));
-      if (previousWindowState) {
-        await appWindow.setSize(new LogicalSize(previousWindowState.width, previousWindowState.height));
-      } else {
-        await appWindow.setSize(new LogicalSize(1180, 620));
-      }
+      await restoreWindowBounds({ width: 1180, height: 620 });
     } catch (error) {
       console.error('Failed to restore window from mini mode:', error);
     }

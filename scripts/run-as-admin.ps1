@@ -1,8 +1,17 @@
-# Starts an elevated PowerShell that runs the provided command in the repo root.
+# Starts an elevated PowerShell that runs the provided command in the repo root and keeps the window open.
 param(
-    [string]$Command = 'npm run tauri-dev',
-    [string]$WorkingDirectory = (Join-Path (Split-Path -Parent (Resolve-Path $MyInvocation.MyCommand.Definition)) '..')
+        [string]$Command = 'npm run tauri-dev',
+        [string]$WorkingDirectory = (Join-Path (Split-Path -Parent (Resolve-Path $MyInvocation.MyCommand.Definition)) '..')
 )
 
- $escapedCommand = "cd '$WorkingDirectory'; $Command"
-Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-Command', $escapedCommand -Verb RunAs
+$scriptBlock = @"
+Set-Location -LiteralPath '$WorkingDirectory'
+$Command
+if (`$LASTEXITCODE -ne 0) {
+    Write-Host "Command exited with code `$LASTEXITCODE" -ForegroundColor Red
+}
+Write-Host ''
+Read-Host 'Press Enter to close'
+"@
+
+Start-Process -FilePath powershell.exe -Verb RunAs -WorkingDirectory $WorkingDirectory -ArgumentList '-NoProfile', '-NoLogo', '-NoExit', '-Command', $scriptBlock

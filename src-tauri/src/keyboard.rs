@@ -177,7 +177,7 @@ pub fn get_modifier_delay() -> u64 {
 }
 
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
@@ -185,8 +185,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowTextW, PostMessageW, SetForegroundWindow,
-    ShowWindow, SW_RESTORE, WM_KEYDOWN, WM_KEYUP,
+    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextW, PostMessageW,
+    SetForegroundWindow, ShowWindow, SW_RESTORE, WM_KEYDOWN, WM_KEYUP,
 };
 
 #[cfg(target_os = "windows")]
@@ -352,6 +352,27 @@ pub fn clear_window_cache() {
     if let Ok(mut last_check) = LAST_WINDOW_CHECK.lock() {
         *last_check = None;
     }
+}
+
+/// Get current game window rectangle in screen coordinates
+#[cfg(target_os = "windows")]
+pub fn get_game_window_rect() -> Option<(i32, i32, i32, i32)> {
+    if let Some(hwnd) = find_game_window() {
+        unsafe {
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                let width = (rect.right - rect.left).max(0);
+                let height = (rect.bottom - rect.top).max(0);
+                return Some((rect.left, rect.top, width, height));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_game_window_rect() -> Option<(i32, i32, i32, i32)> {
+    None
 }
 
 // Modifier key codes
